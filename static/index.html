@@ -125,28 +125,35 @@
   <div id="status" role="status"></div>
 
   <script>
+    const params = new URLSearchParams(window.location.search);
+    const roomId = params.get('room');
+    const clientTeam = (params.get('team') || '').toLowerCase();
+    if (!roomId || !['red', 'blue'].includes(clientTeam)) {
+      window.location.href = '/lobby';
+    }
+
     let N = 8;
     const boardEl = document.getElementById('board');
     const statusEl = document.getElementById('status');
     const cellSize = 72; // must match .cell width/height in CSS
     const gap = 6;
+    const teamQ = `room=${encodeURIComponent(roomId)}&team=${encodeURIComponent(clientTeam)}`;
 
     let COLORS = { red: '#EE5755', blue: '#5557EE', both: '#E000E0' };
-  let SYS = { team: 'red', op: 'toggle_pending' };
+    let SYS = { team: clientTeam, op: 'toggle_pending' };
     let CARD = [];
     let CELLS = { red: [], blue: [] };
-  let PENDING = { red: { xy: null, hp: null }, blue: { xy: null, hp: null }, max_hp: 5 };
+    let PENDING = { red: { xy: null, hp: null }, blue: { xy: null, hp: null }, max_hp: 5 };
 
     function setActiveButtons() {
       const redBtn = document.getElementById('team-red');
       const blueBtn = document.getElementById('team-blue');
-      const redActive = SYS.team === 'red';
-      const blueActive = SYS.team === 'blue';
-      redBtn.classList.toggle('active', redActive);
-      blueBtn.classList.toggle('active', blueActive);
-      // Update button text to 'selected' for active team, 'select' for inactive team
-      if (redBtn) redBtn.textContent = redActive ? 'selected' : 'select';
-      if (blueBtn) blueBtn.textContent = blueActive ? 'selected' : 'select';
+      redBtn.textContent = clientTeam === 'red' ? 'you' : '';
+      blueBtn.textContent = clientTeam === 'blue' ? 'you' : '';
+      redBtn.classList.toggle('active', clientTeam === 'red');
+      blueBtn.classList.toggle('active', clientTeam === 'blue');
+      redBtn.disabled = true;
+      blueBtn.disabled = true;
     }
 
     // Display width helper: ASCII (<=0x7F) counts as 1, any non-ASCII Unicode code point counts as 2.
@@ -332,9 +339,13 @@
     }
 
     async function fetchState() {
-      const res = await fetch('/state');
+      const res = await fetch(`/state?${teamQ}`);
+      if (!res.ok) {
+        statusEl.textContent = 'Failed to load state';
+        return;
+      }
       const data = await res.json();
-  N = data.N || 8;
+      N = data.N || 8;
       COLORS = data.colors || COLORS;
       SYS = data.sys || SYS;
       CARD = data.card || [];
@@ -352,29 +363,24 @@
       setActiveButtons();
       renderBoard();
       updateHpUI();
-
-    }
-
-    async function switchTeam(team) {
-      await fetch('/switch', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ team }) });
-      await fetchState();
     }
 
     async function onCellClick(r, c) {
-      // Server handles semantics: pending->checked, checked->unchecked, unchecked->pending
-      await fetch('/click', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ r, c }) });
+      await fetch(`/click?${teamQ}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ r, c }),
+      });
       await fetchState();
     }
 
-  document.getElementById('team-red').addEventListener('click', () => switchTeam('red'));
-  document.getElementById('team-blue').addEventListener('click', () => switchTeam('blue'));
-  const resetBtn = document.getElementById('reset-btn');
-  if (resetBtn) {
-    resetBtn.addEventListener('click', async () => {
-      await fetch('/reset', { method: 'POST' });
-      await fetchState();
-    });
-  }
+    const resetBtn = document.getElementById('reset-btn');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', async () => {
+        await fetch(`/reset?room=${encodeURIComponent(roomId)}`, { method: 'POST' });
+        await fetchState();
+      });
+    }
 
     function updateHpUI() {
       const redV = document.getElementById('hp-red-value');
@@ -387,32 +393,38 @@
       const rHP = PENDING?.red?.hp;
       const bHP = PENDING?.blue?.hp;
       const MAX = PENDING?.max_hp ?? 5;
+      const canEditRed = clientTeam === 'red';
+      const canEditBlue = clientTeam === 'blue';
 
       if (rHP == null) {
         redV.textContent = '--';
-        redDec.disabled = true; redInc.disabled = true;
+        redDec.disabled = true;
+        redInc.disabled = true;
       } else {
         redV.textContent = String(rHP);
-        redDec.disabled = rHP <= 0;
-        redInc.disabled = rHP >= MAX;
+        redDec.disabled = !canEditRed || rHP <= 0;
+        redInc.disabled = !canEditRed || rHP >= MAX;
       }
 
       if (bHP == null) {
         blueV.textContent = '--';
-        blueDec.disabled = true; blueInc.disabled = true;
+        blueDec.disabled = true;
+        blueInc.disabled = true;
       } else {
         blueV.textContent = String(bHP);
-        blueDec.disabled = bHP <= 0;
-        blueInc.disabled = bHP >= MAX;
+        blueDec.disabled = !canEditBlue || bHP <= 0;
+        blueInc.disabled = !canEditBlue || bHP >= MAX;
       }
     }
 
     async function hpAdjust(team, delta) {
-      const res = await fetch('/hp', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ team, delta }) });
-      if (!res.ok) {
-        // no pending; ignore
-        return;
-      }
+      if (team !== clientTeam) return;
+      const res = await fetch(`/hp?${teamQ}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ team, delta }),
+      });
+      if (!res.ok) return;
       await fetchState();
     }
 
@@ -421,7 +433,11 @@
     document.getElementById('hp-blue-dec').addEventListener('click', () => hpAdjust('blue', -1));
     document.getElementById('hp-blue-inc').addEventListener('click', () => hpAdjust('blue', +1));
 
-    // initial
+    const evtSource = new EventSource(`/events/${encodeURIComponent(roomId)}`);
+    evtSource.onmessage = (e) => {
+      if (e.data === 'state_updated') fetchState();
+    };
+
     fetchState().catch(err => { statusEl.textContent = 'Failed to load state'; console.error(err); });
   </script>
 </body>

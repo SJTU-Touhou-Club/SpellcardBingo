@@ -1,7 +1,10 @@
 import state as S
 from defs import *
 
-from typing import List, Any
+from typing import List, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from state import BingoRoomState
 
 def line_score(line_values: List[int]) -> int:
   # return sum(line_values) # modify this line to change scoring rule
@@ -74,3 +77,43 @@ def calc_total_score(team: Team) -> int:
   total_bingo_score = calc_total_bingo_scores(team)
 
   return total_checked_score + total_bingo_score
+
+
+# Room-aware scoring (for online mode)
+def calc_total_score_for_room(team: Team, room: "BingoRoomState") -> int:
+  """Compute total score for a team using per-room state."""
+  cell_state_dict = room.team_cell_state_dict[team]
+  score_dict = room.spellcard_score_map
+
+  total_checked_score = 0
+  for coord, state in cell_state_dict.items():
+    if state == CellState.CHECKED:
+      total_checked_score += score_dict.get(coord, 0)
+
+  total_bingo_score = calc_total_bingo_scores_for_room(team, room)
+  return total_checked_score + total_bingo_score
+
+
+def check_bingo_for_room(team: Team, line_type: LineType, index: int, room: "BingoRoomState") -> bool:
+  cell_state_dict = room.team_cell_state_dict[team]
+  line_values = get_line_values(cell_state_dict, line_type, index)
+  return all(state == CellState.CHECKED for state in line_values)
+
+
+def calc_bingo_scores_for_room(line_type: LineType, index: int, room: "BingoRoomState") -> int:
+  score_dict = room.spellcard_score_map
+  line_values = get_line_values(score_dict, line_type, index)
+  return line_score(line_values)
+
+
+def calc_total_bingo_scores_for_room(team: Team, room: "BingoRoomState") -> int:
+  total_score = 0
+  for i in range(N):
+    if check_bingo_for_room(team, LineType.ROW, i, room):
+      total_score += calc_bingo_scores_for_room(LineType.ROW, i, room)
+    if check_bingo_for_room(team, LineType.COLUMN, i, room):
+      total_score += calc_bingo_scores_for_room(LineType.COLUMN, i, room)
+  for i in range(2):
+    if check_bingo_for_room(team, LineType.DIAGONAL, i, room):
+      total_score += calc_bingo_scores_for_room(LineType.DIAGONAL, i, room)
+  return total_score

@@ -1,23 +1,45 @@
-"""Flask server for Spellcard Bingo (two-team, server-managed state).
+"""Flask server for Spellcard Bingo (online mode).
 
 Endpoints:
-- GET  /state     -> returns current board, cell states per team, sys op/team, colors, and scores
-- POST /switch    -> accepts { team?: 'red'|'blue', op?: 'toggle_check'|'toggle_pending' } and updates sys selection
-- POST /click     -> accepts { r: int, c: int } and applies current op for current team
-
-All game state and scoring are managed in Python (state.py, calc_score.py).
+- GET  /lobby         -> serve lobby page
+- POST /api/lobby/join -> { room, team } -> create/join room, redirect to game
+- GET  /              -> require ?room= & ?team=, else redirect to /lobby
+- GET  /state         -> ?room= & ?team= -> full state payload
+- POST /click         -> ?room= & ?team=, body { r, c } -> apply click for team
+- POST /hp            -> ?room= & ?team=, body { team, delta } -> adjust HP
+- POST /reset         -> ?room= -> reset room (if allowed)
+- GET  /events/<room_id> -> SSE stream for room
 """
 
-from flask import Flask, jsonify, request, send_from_directory
-from typing import Dict, List, Tuple
+import queue
 import os
 
-from defs import N, Team, CellState, OpType, color_mapping, max_hp, show_reset_button
+from flask import Flask, jsonify, request, send_from_directory, redirect
+from flask import Response
+from typing import Dict, List, Tuple
+
+from defs import N, Team, CellState, color_mapping, max_hp, show_reset_button
 import state as S
 import calc_score as CS
 
 app = Flask(__name__, static_folder="static", static_url_path="")
 
+# SSE event queues per room
+event_queues: Dict[str, list] = {}
+
+
+def event_stream(q: "queue.Queue[str]"):
+    while True:
+        msg = q.get()
+        yield f"data: {msg}\n\n"
+
+
+def broadcast(room_id: str, msg: str) -> None:
+    for q in event_queues.get(room_id, []):
+        try:
+            q.put(msg)
+        except Exception:
+            pass
 
 
 def _enum_from_str_team(team_str: str) -> Team:
@@ -29,41 +51,31 @@ def _enum_from_str_team(team_str: str) -> Team:
     raise ValueError(f"Invalid team: {team_str}")
 
 
-def _enum_from_str_op(op_str: str) -> OpType:
-    s = (op_str or "").lower()
-    if s == OpType.TOGGLE_CHECK.value:
-        return OpType.TOGGLE_CHECK
-    if s == OpType.TOGGLE_PENDING.value:
-        return OpType.TOGGLE_PENDING
-    raise ValueError(f"Invalid op: {op_str}")
-
-
-def _card_payload() -> List[List[Dict]]:
-    """Builds NxN card view from state's sampled spellcards.
-
-    Note: We intentionally avoid S.get_spellcard() because it indexes DataFrame by label;
-    we'll read S.spellcard_data using iloc with S.spellcard_id_map directly.
-    """
+def _card_payload(room: S.BingoRoomState) -> List[List[Dict]]:
     grid: List[List[Dict]] = []
     for r in range(N):
         row: List[Dict] = []
         for c in range(N):
-            sc_id = S.spellcard_id_map.get((r, c))
-            rec = S.spellcard_data.iloc[int(sc_id)] if sc_id is not None else None
+            sc_id = room.spellcard_id_map.get((r, c))
+            rec = (
+                S.spellcard_data.iloc[int(sc_id)]
+                if sc_id is not None
+                else None
+            )
             row.append({
-                "name": None if rec is None else str(rec.get('SpellcardName', '')),
-                "score": 0 if rec is None else int(rec.get('Score', 0)),
-                "index": None if rec is None else str(rec.get('CanonicalID', '')),
-                "comment": None if rec is None else str(rec.get('Comment', '')),
+                "name": None if rec is None else str(rec.get("SpellcardName", "")),
+                "score": 0 if rec is None else int(rec.get("Score", 0)),
+                "index": None if rec is None else str(rec.get("CanonicalID", "")),
+                "comment": None if rec is None else str(rec.get("Comment", "")),
             })
         grid.append(row)
     return grid
 
 
-def _cells_payload() -> Dict[str, List[List[str]]]:
+def _cells_payload(room: S.BingoRoomState) -> Dict[str, List[List[str]]]:
     def team_grid(team: Team) -> List[List[str]]:
         g: List[List[str]] = []
-        d = S.team_cell_state_dict[team]
+        d = room.team_cell_state_dict[team]
         for r in range(N):
             row: List[str] = []
             for c in range(N):
@@ -77,24 +89,26 @@ def _cells_payload() -> Dict[str, List[List[str]]]:
     }
 
 
-def _scores_payload() -> Dict[str, int]:
+def _scores_payload(room: S.BingoRoomState) -> Dict[str, int]:
     return {
-        Team.RED.value: int(CS.calc_total_score(Team.RED)),
-        Team.BLUE.value: int(CS.calc_total_score(Team.BLUE)),
+        Team.RED.value: int(CS.calc_total_score_for_room(Team.RED, room)),
+        Team.BLUE.value: int(CS.calc_total_score_for_room(Team.BLUE, room)),
     }
 
 
-def _sys_payload() -> Dict[str, str]:
-    return {"team": S.sys_team.value, "op": S.sys_op.value}
+def _pending_payload(room: S.BingoRoomState) -> Dict:
+    red_xy = room.get_pending_coord(Team.RED)
+    blue_xy = room.get_pending_coord(Team.BLUE)
 
-def _pending_payload() -> Dict:
-    red_xy = S.get_pending_coord(Team.RED)
-    blue_xy = S.get_pending_coord(Team.BLUE)
     def pack(team: Team, xy):
         if xy is None:
             return {"xy": None, "hp": None}
-        hp_val = S.get_hp(team)
-        return {"xy": [xy[0], xy[1]], "hp": (None if hp_val is None else int(hp_val))}
+        hp_val = room.get_hp(team)
+        return {
+            "xy": [xy[0], xy[1]],
+            "hp": None if hp_val is None else int(hp_val),
+        }
+
     return {
         "red": pack(Team.RED, red_xy),
         "blue": pack(Team.BLUE, blue_xy),
@@ -102,160 +116,180 @@ def _pending_payload() -> Dict:
     }
 
 
-def _state_payload() -> Dict:
+def _state_payload(room: S.BingoRoomState, client_team: str) -> Dict:
     return {
         "N": N,
-        "card": _card_payload(),
-        "cells": _cells_payload(),
-        "sys": _sys_payload(),
-        "colors": {"red": color_mapping[Team.RED], "blue": color_mapping[Team.BLUE], "both": color_mapping["both"]},
-        "scores": _scores_payload(),
-        "pending": _pending_payload(),
+        "card": _card_payload(room),
+        "cells": _cells_payload(room),
+        "sys": {"team": client_team, "op": "toggle_pending"},
+        "colors": {
+            "red": color_mapping[Team.RED],
+            "blue": color_mapping[Team.BLUE],
+            "both": color_mapping["both"],
+        },
+        "scores": _scores_payload(room),
+        "pending": _pending_payload(room),
         "show_reset_button": show_reset_button,
+        "team": client_team,
     }
 
 
-def _clear_pending_for_team(team: Team) -> None:
-    d = S.team_cell_state_dict[team]
+def _clear_pending_for_team(room: S.BingoRoomState, team: Team) -> None:
+    d = room.team_cell_state_dict[team]
     for k, v in list(d.items()):
         if v == CellState.PENDING:
-            S.set_cell_state(team, k, CellState.UNCHECKED)
+            room.set_cell_state(team, k, CellState.UNCHECKED)
 
 
-def _apply_click(r: int, c: int) -> None:
-    team = S.sys_team
+def _apply_click(room: S.BingoRoomState, team: Team, r: int, c: int) -> None:
     xy: Tuple[int, int] = (r, c)
-    cur = S.get_cell_state(team, xy)
-    # New click semantics (bypass sys_op for processing):
-    # - Clicking a PENDING cell -> CHECK it
-    # - Clicking a CHECKED cell -> UNCHECK it
-    # - Clicking an UNCHECKED cell -> set PENDING (only one pending per team)
+    cur = room.get_cell_state(team, xy)
     if cur == CellState.PENDING:
-        S.set_cell_state(team, xy, CellState.CHECKED)
-        _clear_pending_for_team(team)  # ensure no lingering pending
+        room.set_cell_state(team, xy, CellState.CHECKED)
+        _clear_pending_for_team(room, team)
     elif cur == CellState.CHECKED:
-        S.set_cell_state(team, xy, CellState.UNCHECKED)
-        # don't touch pending elsewhere when unchecking
-    else:  # UNCHECKED
-        _clear_pending_for_team(team)
-        S.set_cell_state(team, xy, CellState.PENDING)
+        room.set_cell_state(team, xy, CellState.UNCHECKED)
+    else:
+        _clear_pending_for_team(room, team)
+        room.set_cell_state(team, xy, CellState.PENDING)
+
+
+# --- Routes ---
+
+@app.route("/lobby")
+def lobby():
+    static_dir = app.static_folder or os.path.join(os.path.dirname(__file__), "static")
+    return send_from_directory(static_dir, "lobby.html")
+
+
+@app.route("/api/lobby/join", methods=["POST"])
+def api_lobby_join():
+    data = request.get_json(silent=True) or {}
+    room_id = (data.get("room") or "").strip()
+    team_str = (data.get("team") or "").lower()
+    if not room_id:
+        return jsonify({"error": "Room ID required"}), 400
+    if team_str not in ("red", "blue"):
+        return jsonify({"error": "Team must be red or blue"}), 400
+    room = S.get_room(room_id)
+    return jsonify({"ok": True, "room": room_id, "team": team_str})
+
+
+@app.route("/")
+def index():
+    room_id = request.args.get("room")
+    team_str = request.args.get("team")
+    if not room_id or not team_str:
+        return redirect("/lobby")
+    if team_str.lower() not in ("red", "blue"):
+        return redirect("/lobby")
+    static_dir = app.static_folder or os.path.join(os.path.dirname(__file__), "static")
+    return send_from_directory(static_dir, "index.html")
 
 
 @app.route("/state")
 def api_state():
-    return jsonify(_state_payload())
-
-
-@app.route("/switch", methods=["POST"])
-def api_switch():
-    data = request.get_json(force=True) or {}
-    team_str = data.get("team")
-    op_str = data.get("op")
-    # Debug print
-    payload = {}
-    if team_str is not None:
-        payload["team"] = team_str
-    if op_str is not None:
-        payload["op"] = op_str
-    print(f"-- switch {payload}")
+    room_id = request.args.get("room")
+    team_str = request.args.get("team")
+    if not room_id or not team_str:
+        return jsonify({"error": "Missing room or team"}), 400
     try:
-        if team_str is not None:
-            S.sys_team = _enum_from_str_team(team_str)
-        if op_str is not None:
-            S.sys_op = _enum_from_str_op(op_str)
+        team = _enum_from_str_team(team_str)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
-    return jsonify(_state_payload())
+    room = S.get_room(room_id)
+    return jsonify(_state_payload(room, team.value))
 
 
 @app.route("/click", methods=["POST"])
 def api_click():
+    room_id = request.args.get("room")
+    team_str = request.args.get("team")
+    if not room_id or not team_str:
+        return jsonify({"error": "Missing room or team"}), 400
+    try:
+        team = _enum_from_str_team(team_str)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
     data = request.get_json(force=True) or {}
     r_raw = data.get("r")
     c_raw = data.get("c")
     if r_raw is None or c_raw is None:
         return jsonify({"error": "Missing r/c"}), 400
     try:
-        r = int(r_raw)
-        c = int(c_raw)
+        r, c = int(r_raw), int(c_raw)
     except (TypeError, ValueError):
         return jsonify({"error": "Invalid r/c"}), 400
     if not (0 <= r < N and 0 <= c < N):
         return jsonify({"error": "Out of range"}), 400
-    # Debug print
-    print(f"-- click {{'r': {r}, 'c': {c}}}")
-    _apply_click(r, c)
-    return jsonify(_state_payload())
+
+    room = S.get_room(room_id)
+    with room.lock:
+        _apply_click(room, team, r, c)
+        S.save_room(room)
+    broadcast(room_id, "state_updated")
+    return jsonify(_state_payload(room, team.value))
 
 
 @app.route("/hp", methods=["POST"])
 def api_hp():
+    room_id = request.args.get("room")
+    team_str = request.args.get("team")
+    if not room_id or not team_str:
+        return jsonify({"error": "Missing room or team"}), 400
+    try:
+        team = _enum_from_str_team(team_str)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
     data = request.get_json(force=True) or {}
-    team_str = data.get("team")
     delta = data.get("delta", 0)
     try:
-        if not isinstance(team_str, str):
-            raise ValueError("missing team")
-        team = _enum_from_str_team(team_str)
         delta = int(delta)
-    except Exception:
-        return jsonify({"error": "Invalid team/delta"}), 400
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid delta"}), 400
 
-    xy = S.get_pending_coord(team)
+    room = S.get_room(room_id)
+    xy = room.get_pending_coord(team)
     if xy is None:
-        print(f"-- hp {{'team': '{team.value}', 'delta': {delta}}} -> no-pending")
         return jsonify({"error": "No pending cell for team"}), 400
 
-    # Debug print
-    print(f"-- hp {{'team': '{team.value}', 'delta': {delta}}}")
-    # inc_hp should handle positive or negative delta and clamp internally
-    S.inc_hp(team, delta)
-
-    return jsonify(_state_payload())
+    with room.lock:
+        room.inc_hp(team, delta)
+        S.save_room(room)
+    broadcast(room_id, "state_updated")
+    return jsonify(_state_payload(room, team.value))
 
 
 @app.route("/reset", methods=["POST"])
 def api_reset():
     if not show_reset_button:
         return jsonify({"error": "Reset button disabled"}), 403
-    
-    """Re-initialize game state (data reload, new board, reset states)."""
-    print("-- reset {}")
-    try:
-        S.init_state(reset=True)
-        return jsonify(_state_payload())
-    except Exception as e:
-        return jsonify({"error": f"reset failed: {e}"}), 500
+
+    room_id = request.args.get("room")
+    if not room_id:
+        return jsonify({"error": "Missing room"}), 400
+
+    room = S.get_room(room_id)
+    with room.lock:
+        room.reset()
+        S.save_room(room)
+    broadcast(room_id, "state_updated")
+    return jsonify(_state_payload(room, Team.RED.value))
 
 
-@app.route("/")
-def index():
-    static_dir = app.static_folder or os.path.join(os.path.dirname(__file__), "static")
-    return send_from_directory(static_dir, "index.html")
+@app.route("/events/<room_id>")
+def events(room_id: str):
+    q: queue.Queue = queue.Queue()
+    event_queues.setdefault(room_id, []).append(q)
+    return Response(event_stream(q), mimetype="text/event-stream")
+
 
 def is_serving_process(app) -> bool:
-    """Determines if the current process is the one serving requests.
-
-    In Flask debug mode, the reloader spawns a child process to serve requests
-    (WERKZEUG_RUN_MAIN == 'true'). In non-debug mode, this process serves.
-    """
     return (os.environ.get("WERKZEUG_RUN_MAIN") == "true") or (not app.debug)
-    
+
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser()  # to avoid Flask's arg parsing issues
-    parser.add_argument("--resume", action="store_true")
-    reset = not parser.parse_args().resume
-
-    S.init_state(reset=reset)
-    # Initialize state on server start
-    try:
-        # Start Flask server
-        app.run(debug=True, host="0.0.0.0")
-
-    except Exception as e:
-        print(f"Failed to start server: {e}")
-    finally:
-        if is_serving_process(app):
-            S.try_save_latest_checkpoint()
+    S.load_spellcard_data()
+    app.run(debug=True, host="0.0.0.0")

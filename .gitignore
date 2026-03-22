@@ -33,6 +33,10 @@ Thumbs.db
 # data/SpellcardData.csv
 data/checkpoint-*.pickle
 data/checkpoint-*.json
+data/rooms/
 
 # Logs
 *.log
+
+# Local reference (online functionality reference)
+local_reference/

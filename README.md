@@ -58,25 +58,33 @@ Requirements:
 Run the server:
 
 ```bash
-python app.py           # start fresh (new random board)
-python app.py --resume  # resume from the latest checkpoint if available
+python app.py
 ```
 
-Open http://localhost:5000 in a browser. The page is optimized for on-stage display.
+Open http://localhost:5000 in a browser.
+
+### Online play
+
+Two players (or parties) play over the internet, each representing a team (RED or BLUE):
+
+1. Each player opens the app and is directed to the **lobby**.
+2. Both enter the same **room ID** (e.g. `abc123`) and choose their **team** (RED or BLUE).
+3. Click **Play** to join the game. Multiple connections per team are allowed (reconnect-friendly).
+4. Each client is fixed to its team; cell clicks and HP adjustments affect that team only.
+5. State is synced in real time via Server-Sent Events. Room state persists across server restarts.
+
+See `docs/online-adaptation.md` for the full design.
 
 ### Top HUD UI
 
 - Left and right: team titles “RED” and “BLUE”.
 - Center row labels: “score” and “hp”.
 - Under each team title you’ll see the team’s total score and its HP controls.
-
-### Selecting a team
-
-Use the “select” button below a team label to make that team active. The active team’s button shows “selected”. All clicks on the grid affect the currently selected team only.
+- Your team is indicated by “you” under the team label; controls for the other team are display-only.
 
 ### Clicking cells (core logic)
 
-For the currently selected team, cell clicks cycle through these states:
+For your team, cell clicks cycle through these states:
 
 1. Unchecked → Pending
 2. Pending → Checked
@@ -100,11 +108,10 @@ Click “Reset” to reinitialize everything.
 - Per‑cell scores come from the data file and are shown in the bottom‑right of each cell.
 - Team totals are calculated on the server (see `calc_score.py`) from the sum of checked cells and bingo bonus.
 
-### Persistence and resume
+### Persistence
 
-- On startup, the server will start fresh by default. Use `--resume` to restore from the latest available checkpoint.
-- On shutdown, the server saves a checkpoint containing board layout, per‑team cell states, and HP.
-- Checkpoints are written as pickle files to `data/checkpoint-{id}.pickle` and the latest is loaded when resuming.
+- Room state is saved to `data/rooms/{room_id}/state.json` after each mutation (click, hp, reset).
+- State persists across server restarts; rooms are loaded on first access.
 
 ---
 
@@ -128,7 +135,7 @@ Click “Reset” to reinitialize everything.
 - Comment rendering: font size adapts heuristically based on length so most comments fit within a ~28px tall area below the name; color flips to white when the cell is checked for contrast.
 - Pending state outline: visible border in the active team color, extending slightly outside the cell box for stage visibility.
 - Score: circled numerals at bottom-right for scores up to 20; larger scores fall back to plain text.
-- Layout: the “select” buttons are aligned directly below their respective team columns; the center column keeps a fixed width so alignment remains stable whether the Reset button is visible or hidden.
+- Layout: team labels show "you" for your side; the center column keeps a fixed width so alignment remains stable whether the Reset button is visible or hidden.
 
 ---
 

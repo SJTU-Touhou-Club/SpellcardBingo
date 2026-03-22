@@ -250,3 +250,247 @@ def inc_hp(team: Team, delta: int):
 if __name__ == "__main__":
   init_state()
   try_save_latest_checkpoint()
+
+
+# =============================================================================
+# Online mode: per-room state (BingoRoomState, get_room, persistence)
+# =============================================================================
+
+import json
+import threading
+
+_ROOMS_DIR = "data/rooms"
+_bingo_rooms: Dict[str, "BingoRoomState"] = {}
+
+
+def _room_coord_key(xy: Coord) -> str:
+    return f"{xy[0]},{xy[1]}"
+
+
+def _room_parse_coord(s: str) -> Coord:
+    r, c = s.split(",", 1)
+    return (int(r), int(c))
+
+
+def _room_serialize_cell_state(d: CellStateDict) -> Dict[str, str]:
+    return {_room_coord_key(k): v.value for k, v in d.items()}
+
+
+def _room_deserialize_cell_state(data: Dict[str, str]) -> CellStateDict:
+    return {_room_parse_coord(k): CellState(v) for k, v in data.items()}
+
+
+def _room_serialize_hp(d: Dict[Coord, int]) -> Dict[str, int]:
+    return {_room_coord_key(k): v for k, v in d.items()}
+
+
+def _room_deserialize_hp(data: Dict[str, int]) -> Dict[Coord, int]:
+    return {_room_parse_coord(k): v for k, v in data.items()}
+
+
+def _room_serialize_spellcard_map(m: Dict[Coord, int]) -> Dict[str, int]:
+    return {_room_coord_key(k): v for k, v in m.items()}
+
+
+def _room_deserialize_spellcard_map(data: Dict[str, int]) -> Dict[Coord, int]:
+    return {_room_parse_coord(k): int(v) for k, v in data.items()}
+
+
+class BingoRoomState:
+    """Per-room game state: spellcard grid, cell states, HP (online mode)."""
+
+    def __init__(self, room_id: str, seed: int):
+        self.room_id = room_id
+        self.seed = seed
+        self.lock = threading.Lock()
+        self.spellcard_id_map: Dict[Coord, int] = {}
+        self.team_cell_state_dict: Dict[Team, CellStateDict] = {}
+        self.team_hp_dict: Dict[Team, Dict[Coord, int]] = {}
+        self.spellcard_score_map: Dict[Coord, int] = {}
+
+    def init_fresh(self) -> None:
+        for team in [Team.RED, Team.BLUE]:
+            self.team_cell_state_dict[team] = {
+                (i, j): CellState.UNCHECKED
+                for i in range(N)
+                for j in range(N)
+            }
+            self.team_hp_dict[team] = {
+                (i, j): max_hp
+                for i in range(N)
+                for j in range(N)
+            }
+        self._sample_spellcard()
+        self._init_spellcard_score_map()
+
+    def _sample_spellcard(self) -> None:
+        import random
+        rng = random.Random(self.seed)
+        total = len(spellcard_data)
+        sampled = rng.sample(range(total), N * N)
+        sampled = self._inject_privileged(sampled)
+        self.spellcard_id_map = {
+            (i, j): sampled[i * N + j] for i in range(N) for j in range(N)
+        }
+
+    def _inject_privileged(self, sampled: List[int]) -> List[int]:
+        import random
+        rng = random.Random(self.seed + 1)
+        positions = rng.sample(range(N * N), len(privileged_spellcard_ids))
+        to_evict = [sampled[pos] for pos in positions]
+        for pos, sc_global_id in zip(positions, privileged_spellcard_ids):
+            sc_ids = spellcard_data.index[
+                spellcard_data["GlobalID"] == sc_global_id
+            ].tolist()
+            if len(sc_ids) != 1:
+                raise RuntimeError(
+                    f"privileged spellcard {sc_global_id} not found or not unique"
+                )
+            sc_id = sc_ids[0]
+            if sc_id not in sampled or sc_id in to_evict:
+                sampled[pos] = sc_id
+        return sampled
+
+    def _init_spellcard_score_map(self) -> None:
+        self.spellcard_score_map = {
+            xy: int(spellcard_data.iloc[sc_id]["Score"])
+            for xy, sc_id in self.spellcard_id_map.items()
+        }
+
+    def to_dict(self) -> dict:
+        return {
+            "spellcard_id_map": _room_serialize_spellcard_map(
+                self.spellcard_id_map
+            ),
+            "team_cell_state_dict": {
+                t.value: _room_serialize_cell_state(d)
+                for t, d in self.team_cell_state_dict.items()
+            },
+            "team_hp_dict": {
+                t.value: _room_serialize_hp(d)
+                for t, d in self.team_hp_dict.items()
+            },
+        }
+
+    def get_cell_state(self, team: Team, xy: Coord) -> CellState:
+        return self.team_cell_state_dict[team][xy]
+
+    def set_cell_state(self, team: Team, xy: Coord, state: CellState) -> None:
+        self.team_cell_state_dict[team][xy] = state
+
+    def get_cell_hp(self, team: Team, xy: Coord) -> int:
+        return self.team_hp_dict[team][xy]
+
+    def inc_cell_hp(self, team: Team, xy: Coord, delta: int) -> None:
+        self.team_hp_dict[team][xy] += delta
+        if self.team_hp_dict[team][xy] > max_hp:
+            self.team_hp_dict[team][xy] = max_hp
+        if self.team_hp_dict[team][xy] < 0:
+            self.team_hp_dict[team][xy] = 0
+
+    def get_pending_coord(self, team: Team) -> Optional[Coord]:
+        for xy, st in self.team_cell_state_dict[team].items():
+            if st == CellState.PENDING:
+                return xy
+        return None
+
+    def get_hp(self, team: Team) -> int:
+        xy = self.get_pending_coord(team)
+        if xy is None:
+            return max_hp
+        return self.get_cell_hp(team, xy)
+
+    def inc_hp(self, team: Team, delta: int) -> None:
+        xy = self.get_pending_coord(team)
+        if xy is None:
+            return
+        self.inc_cell_hp(team, xy, delta)
+
+    def get_spellcard(self, xy: Coord) -> dict:
+        sc_id = self.spellcard_id_map.get(xy)
+        if sc_id is None:
+            return {"name": "", "score": 0, "index": "", "comment": ""}
+        rec = spellcard_data.iloc[int(sc_id)]
+        return {
+            "name": str(rec.get("SpellcardName", "")),
+            "score": int(rec.get("Score", 0)),
+            "index": str(rec.get("CanonicalID", "")),
+            "comment": str(rec.get("Comment", "")),
+        }
+
+    def reset(self) -> None:
+        self.init_fresh()
+
+    @classmethod
+    def from_dict(cls, room_id: str, data: dict) -> "BingoRoomState":
+        seed = sum(ord(c) for c in room_id)
+        obj = cls(room_id, seed)
+        obj.spellcard_id_map = _room_deserialize_spellcard_map(
+            data.get("spellcard_id_map", {})
+        )
+        obj.team_cell_state_dict = {
+            Team(t): _room_deserialize_cell_state(d)
+            for t, d in data.get("team_cell_state_dict", {}).items()
+        }
+        obj.team_hp_dict = {
+            Team(t): _room_deserialize_hp(d)
+            for t, d in data.get("team_hp_dict", {}).items()
+        }
+        obj._init_spellcard_score_map()
+        return obj
+
+
+def _room_state_path(room_id: str) -> str:
+    safe_id = "".join(c if c.isalnum() or c in "-_" else "_" for c in room_id)
+    return os.path.join(_ROOMS_DIR, safe_id, "state.json")
+
+
+def _load_room_from_disk(room_id: str) -> Optional[BingoRoomState]:
+    path = _room_state_path(room_id)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return BingoRoomState.from_dict(room_id, data)
+    except Exception as e:
+        print(f"[state] Failed to load room {path}: {e}")
+        return None
+
+
+def _save_room_to_disk(room: BingoRoomState) -> None:
+    path = _room_state_path(room.room_id)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(room.to_dict(), f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"[state] Failed to save room {path}: {e}")
+
+
+def ensure_spellcard_data_loaded() -> None:
+    """Ensure global spellcard data is loaded (call before get_room)."""
+    if spellcard_data is None or len(spellcard_data) == 0:
+        load_spellcard_data()
+
+
+def get_room(room_id: str) -> BingoRoomState:
+    """Get or create room; load from disk if present (online mode)."""
+    ensure_spellcard_data_loaded()
+    if room_id in _bingo_rooms:
+        return _bingo_rooms[room_id]
+    loaded = _load_room_from_disk(room_id)
+    if loaded is not None:
+        _bingo_rooms[room_id] = loaded
+        return loaded
+    seed = sum(ord(c) for c in room_id)
+    room = BingoRoomState(room_id, seed)
+    room.init_fresh()
+    _bingo_rooms[room_id] = room
+    _save_room_to_disk(room)
+    return room
+
+
+def save_room(room: BingoRoomState) -> None:
+    """Persist room state to disk (online mode)."""
+    _save_room_to_disk(room)

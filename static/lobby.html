@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Spellcard Bingo | Lobby</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background: #f5f5f5;
+    }
+    .card {
+      background: #fff;
+      padding: 24px;
+      border-radius: 12px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+      width: min(400px, 92vw);
+    }
+    h1 { margin: 0 0 20px; font-size: 22px; }
+    .row { display: flex; gap: 10px; margin: 14px 0; align-items: center; }
+    .row label { min-width: 80px; font-weight: 600; }
+    input[type="text"] { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
+    .team-row { display: flex; gap: 12px; align-items: center; margin: 14px 0; }
+    .team-row label { margin-right: 8px; }
+    .team-btn {
+      padding: 10px 20px;
+      border-radius: 999px;
+      border: 2px solid #ddd;
+      font-size: 14px;
+      font-weight: 700;
+      background: #fff;
+      cursor: pointer;
+      transition: 0.15s;
+    }
+    .team-btn:hover { border-color: #bbb; background: #f9f9f9; }
+    .team-btn.red { border-color: #EE5755; color: #EE5755; }
+    .team-btn.red:hover, .team-btn.red.selected { background: #EE5755; color: #fff; }
+    .team-btn.blue { border-color: #5557EE; color: #5557EE; }
+    .team-btn.blue:hover, .team-btn.blue.selected { background: #5557EE; color: #fff; }
+    .btn { padding: 10px 20px; border-radius: 10px; border: 2px solid #ddd; background: #fff; cursor: pointer; font-weight: 700; }
+    .btn:hover { background: #f0f0f0; border-color: #bbb; }
+    .primary { background: #5557EE; color: #fff; border-color: #5557EE; margin-top: 8px; }
+    .primary:hover { background: #4445dd; border-color: #4445dd; }
+    .note { color: #666; font-size: 12px; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Spellcard Bingo | Lobby</h1>
+    <div class="row">
+      <label for="room">Room ID</label>
+      <input id="room" type="text" placeholder="e.g. abc123" />
+    </div>
+    <div class="team-row">
+      <label>Team</label>
+      <button id="team-red" class="team-btn red" type="button">RED</button>
+      <button id="team-blue" class="team-btn blue selected" type="button">BLUE</button>
+    </div>
+    <div style="display: flex; justify-content: flex-end;">
+      <button id="go" class="btn primary">Play</button>
+    </div>
+    <div class="note">Enter a room ID and select your team. Multiple connections per team are allowed (reconnect-friendly).</div>
+  </div>
+  <script>
+    const roomInput = document.getElementById('room');
+    const goBtn = document.getElementById('go');
+    const teamRedBtn = document.getElementById('team-red');
+    const teamBlueBtn = document.getElementById('team-blue');
+
+    let selectedTeam = 'blue';
+
+    teamRedBtn.addEventListener('click', () => {
+      selectedTeam = 'red';
+      teamRedBtn.classList.add('selected');
+      teamBlueBtn.classList.remove('selected');
+    });
+    teamBlueBtn.addEventListener('click', () => {
+      selectedTeam = 'blue';
+      teamBlueBtn.classList.add('selected');
+      teamRedBtn.classList.remove('selected');
+    });
+
+    function post(url, body) {
+      return fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then(r => r.json());
+    }
+
+    goBtn.addEventListener('click', async () => {
+      const room = (roomInput.value || '').trim();
+      if (!room) {
+        alert('Please enter a room ID.');
+        return;
+      }
+      goBtn.disabled = true;
+      const res = await post('/api/lobby/join', { room, team: selectedTeam });
+      if (res.error) {
+        goBtn.disabled = false;
+        alert(res.error);
+        return;
+      }
+      window.location.href = `/?room=${encodeURIComponent(res.room)}&team=${encodeURIComponent(res.team)}`;
+    });
+  </script>
+</body>
+</html>
