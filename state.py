@@ -511,20 +511,22 @@ def ensure_spellcard_data_loaded() -> None:
         load_spellcard_data()
 
 
-def get_room(room_id: str) -> BingoRoomState:
+def get_room(room_id: str, create_mode: Optional[str] = None) -> BingoRoomState:
     """Get or create room; load from disk if present (online mode).
-    Raises RoomIncompatibleError if room on disk has different mode/size than server."""
+    create_mode: mode for new rooms (used when room does not exist). Default: server mode.
+    Raises RoomIncompatibleError if room on disk has different size than server."""
     ensure_spellcard_data_loaded()
     if room_id in _bingo_rooms:
         return _bingo_rooms[room_id]
     loaded = _load_room_from_disk(room_id)
     if loaded is not None:
-        if loaded.mode != _SERVER_MODE or loaded.size != _SERVER_SIZE:
+        if loaded.size != _SERVER_SIZE:
             raise RoomIncompatibleError(loaded.mode, loaded.size)
         _bingo_rooms[room_id] = loaded
         return loaded
     seed = sum(ord(c) for c in room_id)
-    room = BingoRoomState(room_id, seed, mode=_SERVER_MODE, size=_SERVER_SIZE)
+    mode = create_mode if create_mode in ("shared", "exclusive") else _SERVER_MODE
+    room = BingoRoomState(room_id, seed, mode=mode, size=_SERVER_SIZE)
     room.init_fresh()
     _bingo_rooms[room_id] = room
     _save_room_to_disk(room)

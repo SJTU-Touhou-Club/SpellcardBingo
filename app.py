@@ -209,15 +209,16 @@ def api_lobby_join():
     data = request.get_json(silent=True) or {}
     room_id = (data.get("room") or "").strip()
     team_str = (data.get("team") or "").lower()
+    create_mode = (data.get("mode") or "").lower().strip() or None
     if not room_id:
         return jsonify({"error": "Room ID required"}), 400
     if team_str not in ("red", "blue"):
         return jsonify({"error": "Team must be red or blue"}), 400
     try:
-        room = S.get_room(room_id)
+        room = S.get_room(room_id, create_mode=create_mode)
     except S.RoomIncompatibleError as e:
         return _incompat_response(e)
-    return jsonify({"ok": True, "room": room_id, "team": team_str})
+    return jsonify({"ok": True, "room": room_id, "team": team_str, "mode": room.mode})
 
 
 @app.route("/")
@@ -361,7 +362,13 @@ if __name__ == "__main__":
         metavar="N",
         help="Grid size (NxN). Default: 5",
     )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=5000,
+        help="Port to listen on. Default: 5000",
+    )
     args = parser.parse_args()
     S.set_server_config(args.mode, args.size)
     S.load_spellcard_data()
-    app.run(debug=True, host="0.0.0.0")
+    app.run(debug=True, host="0.0.0.0", port=args.port)

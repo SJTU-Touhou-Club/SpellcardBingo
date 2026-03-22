@@ -62,21 +62,22 @@ Requirements:
 Run the server:
 
 ```bash
-python app.py [--mode shared|exclusive] [--size N]
+python app.py [--mode shared|exclusive] [--size N] [--port P]
 ```
 
-- `--mode`: `shared` (default) or `exclusive`. In shared mode, both teams can complete the same cell; in exclusive mode, each cell can be owned by only one team.
-- `--size`: grid size N (default 5). The board is N×N.
+- `--mode`: server default for new rooms (default: `shared`). New rooms can override via the lobby mode selector.
+- `--size`: grid size N (default 5). The board is N×N. Serves as default for new rooms.
+- `--port`: port to listen on (default: 5000).
 
-Open http://localhost:5000 in a browser.
+Open http://localhost:5000 in a browser (or the port you specified).
 
 ### Online play
 
 Two players (or parties) play over the internet, each representing a team (RED or BLUE):
 
 1. Each player opens the app and is directed to the **lobby**.
-2. Both enter the same **room ID** (e.g. `abc123`) and choose their **team** (RED or BLUE).
-3. Click **Play** to join the game. Multiple connections per team are allowed (reconnect-friendly).
+2. Both enter the same **room ID** (e.g. `abc123`), select **mode** (Shared/Exclusive), and choose their **team** (RED or BLUE).
+3. Click **Join** to join the game. The first player to join a room sets the mode; all players in that room share the same mode.
 4. Each client is fixed to its team; cell clicks and HP adjustments affect that team only.
 5. State is synced in real time via Server-Sent Events. Room state persists across server restarts.
 
@@ -120,7 +121,7 @@ Click “Reset” to reinitialize everything.
 
 - Room state is saved to `data/rooms/{room_id}/state.json` after each mutation (click, hp, reset).
 - State persists across server restarts; rooms are loaded on first access.
-- Each room stores its game mode and grid size. If you start the server with different `--mode` or `--size`, existing rooms created under the old settings are incompatible. The app will prompt you to use a new Room ID; existing room data is never overwritten.
+- Each room stores its game mode (set by the first joiner) and grid size. Mode is per-room; different rooms can have different modes. If you start the server with a different `--size`, existing rooms created under the old grid size are incompatible. The app will prompt you to use a new Room ID; existing room data is never overwritten.
 
 ---
 
@@ -128,8 +129,9 @@ Click “Reset” to reinitialize everything.
 
 > Command line (`python app.py`)
 
-1. `--mode`: game mode (`shared` or `exclusive`). Default: `shared`.
-2. `--size`: grid size N. Default: `5`.
+1. `--mode`: default game mode for new rooms (`shared` or `exclusive`). Default: `shared`. Each room can have its own mode (set in the lobby when the room is first created).
+2. `--size`: grid size N. Default: `5`. Serves as default for new rooms.
+3. `--port`: listening port. Default: `5000`.
 
 > defs.py
 

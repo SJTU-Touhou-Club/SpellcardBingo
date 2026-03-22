@@ -28,8 +28,20 @@
     .row { display: flex; gap: 10px; margin: 14px 0; align-items: center; }
     .row label { min-width: 80px; font-weight: 700; }
     input[type="text"] { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
-    .team-row { display: flex; gap: 12px; align-items: center; margin: 14px 0; }
-    .team-row label { margin-right: 8px; font-weight: 700; }
+    .mode-row, .team-row { display: flex; gap: 12px; align-items: center; margin: 14px 0; }
+    .mode-row label, .team-row label { margin-right: 8px; font-weight: 700; }
+    .mode-btn {
+      padding: 10px 20px;
+      border-radius: 999px;
+      border: 2px solid #555;
+      font-size: 14px;
+      font-weight: 700;
+      background: #fff;
+      cursor: pointer;
+      transition: 0.15s;
+    }
+    .mode-btn:hover { border-color: #333; background: #f5f5f5; }
+    .mode-btn.selected { background: #333; color: #fff; border-color: #333; }
     .team-btn {
       padding: 10px 20px;
       border-radius: 999px;
@@ -65,6 +77,11 @@
       <label for="room">Room ID</label>
       <input id="room" type="text" placeholder="e.g. abc123" />
     </div>
+    <div class="mode-row">
+      <label>Mode</label>
+      <button id="mode-shared" class="mode-btn selected" type="button">Shared</button>
+      <button id="mode-exclusive" class="mode-btn" type="button">Exclusive</button>
+    </div>
     <div class="team-row">
       <label>Team</label>
       <button id="team-red" class="team-btn red" type="button">RED</button>
@@ -79,8 +96,11 @@
     const goBtn = document.getElementById('go');
     const teamRedBtn = document.getElementById('team-red');
     const teamBlueBtn = document.getElementById('team-blue');
+    const modeSharedBtn = document.getElementById('mode-shared');
+    const modeExclusiveBtn = document.getElementById('mode-exclusive');
 
     let selectedTeam = 'blue';
+    let selectedMode = 'shared';
 
     function updatePlayButton() {
       goBtn.classList.remove('team-red', 'team-blue');
@@ -100,6 +120,20 @@
       updatePlayButton();
     });
 
+    function updateModeButtons() {
+      modeSharedBtn.classList.toggle('selected', selectedMode === 'shared');
+      modeExclusiveBtn.classList.toggle('selected', selectedMode === 'exclusive');
+    }
+
+    modeSharedBtn.addEventListener('click', () => {
+      selectedMode = 'shared';
+      updateModeButtons();
+    });
+    modeExclusiveBtn.addEventListener('click', () => {
+      selectedMode = 'exclusive';
+      updateModeButtons();
+    });
+
     function post(url, body) {
       return fetch(url, {
         method: 'POST',
@@ -115,7 +149,7 @@
         return;
       }
       goBtn.disabled = true;
-      const res = await post('/api/lobby/join', { room, team: selectedTeam });
+      const res = await post('/api/lobby/join', { room, team: selectedTeam, mode: selectedMode });
       if (res.incompatible) {
         goBtn.disabled = false;
         alert(res.message || 'This room was created with different settings. Please use a new Room ID.');
@@ -138,9 +172,11 @@
         const cfg = await fetch('/api/config').then(r => r.json());
         const mode = cfg.mode || 'shared';
         const size = cfg.size || 5;
+        selectedMode = mode === 'exclusive' ? 'exclusive' : 'shared';
+        updateModeButtons();
         const el = document.getElementById('game-info');
         if (el) {
-          el.innerHTML = `<span class="badge">${mode === 'exclusive' ? 'Exclusive' : 'Shared'}</span><span class="size-tag">${size}×${size} grid</span>`;
+          el.innerHTML = `<span class="badge">Default: ${mode === 'exclusive' ? 'Exclusive' : 'Shared'}</span><span class="size-tag">${size}×${size} grid</span>`;
         }
       } catch (_) {}
     })();
