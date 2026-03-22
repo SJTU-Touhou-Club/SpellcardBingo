@@ -12,9 +12,13 @@
       justify-content: center;
       min-height: 100vh;
       background: #f5f5f5;
+      background-image: url('media/warabe-asobi.png');
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
     }
     .card {
-      background: #fff;
+      background: rgba(255, 255, 255, 0.8);
       padding: 24px;
       border-radius: 12px;
       box-shadow: 0 8px 30px rgba(0,0,0,0.12);
@@ -22,10 +26,10 @@
     }
     h1 { margin: 0 0 20px; font-size: 22px; }
     .row { display: flex; gap: 10px; margin: 14px 0; align-items: center; }
-    .row label { min-width: 80px; font-weight: 600; }
+    .row label { min-width: 80px; font-weight: 700; }
     input[type="text"] { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
     .team-row { display: flex; gap: 12px; align-items: center; margin: 14px 0; }
-    .team-row label { margin-right: 8px; }
+    .team-row label { margin-right: 8px; font-weight: 700; }
     .team-btn {
       padding: 10px 20px;
       border-radius: 999px;
@@ -43,14 +47,20 @@
     .team-btn.blue:hover, .team-btn.blue.selected { background: #5557EE; color: #fff; }
     .btn { padding: 10px 20px; border-radius: 10px; border: 2px solid #ddd; background: #fff; cursor: pointer; font-weight: 700; }
     .btn:hover { background: #f0f0f0; border-color: #bbb; }
-    .primary { background: #5557EE; color: #fff; border-color: #5557EE; margin-top: 8px; }
-    .primary:hover { background: #4445dd; border-color: #4445dd; }
-    .note { color: #666; font-size: 12px; margin-top: 12px; }
+    .primary { color: #fff; margin-top: 8px; transition: background 0.15s, border-color 0.15s; }
+    .primary.team-red { background: #EE5755; border-color: #EE5755; }
+    .primary.team-red:hover { background: #dd4644; border-color: #dd4644; }
+    .primary.team-blue { background: #5557EE; border-color: #5557EE; }
+    .primary.team-blue:hover { background: #4445dd; border-color: #4445dd; }
+    .game-info { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 20px; }
+    .game-info .badge { padding: 4px 10px; border-radius: 999px; background: rgba(30, 45, 90, 0.92); color: #e8ecf8; font-weight: 600; box-shadow: 0 1px 4px rgba(0,0,0,0.2); }
+    .game-info .size-tag { padding: 4px 10px; border-radius: 999px; background: rgba(30, 45, 90, 0.92); color: #e8ecf8; box-shadow: 0 1px 4px rgba(0,0,0,0.2); }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Spellcard Bingo | Lobby</h1>
+    <div id="game-info" class="game-info"></div>
     <div class="row">
       <label for="room">Room ID</label>
       <input id="room" type="text" placeholder="e.g. abc123" />
@@ -61,9 +71,8 @@
       <button id="team-blue" class="team-btn blue selected" type="button">BLUE</button>
     </div>
     <div style="display: flex; justify-content: flex-end;">
-      <button id="go" class="btn primary">Play</button>
+      <button id="go" class="btn primary team-blue">Join</button>
     </div>
-    <div class="note">Enter a room ID and select your team. Multiple connections per team are allowed (reconnect-friendly).</div>
   </div>
   <script>
     const roomInput = document.getElementById('room');
@@ -73,15 +82,22 @@
 
     let selectedTeam = 'blue';
 
+    function updatePlayButton() {
+      goBtn.classList.remove('team-red', 'team-blue');
+      goBtn.classList.add(selectedTeam === 'red' ? 'team-red' : 'team-blue');
+    }
+
     teamRedBtn.addEventListener('click', () => {
       selectedTeam = 'red';
       teamRedBtn.classList.add('selected');
       teamBlueBtn.classList.remove('selected');
+      updatePlayButton();
     });
     teamBlueBtn.addEventListener('click', () => {
       selectedTeam = 'blue';
       teamBlueBtn.classList.add('selected');
       teamRedBtn.classList.remove('selected');
+      updatePlayButton();
     });
 
     function post(url, body) {
@@ -100,13 +116,34 @@
       }
       goBtn.disabled = true;
       const res = await post('/api/lobby/join', { room, team: selectedTeam });
+      if (res.incompatible) {
+        goBtn.disabled = false;
+        alert(res.message || 'This room was created with different settings. Please use a new Room ID.');
+        return;
+      }
       if (res.error) {
         goBtn.disabled = false;
         alert(res.error);
         return;
       }
+      if (!res.ok) {
+        goBtn.disabled = false;
+        return;
+      }
       window.location.href = `/?room=${encodeURIComponent(res.room)}&team=${encodeURIComponent(res.team)}`;
     });
+
+    (async () => {
+      try {
+        const cfg = await fetch('/api/config').then(r => r.json());
+        const mode = cfg.mode || 'shared';
+        const size = cfg.size || 5;
+        const el = document.getElementById('game-info');
+        if (el) {
+          el.innerHTML = `<span class="badge">${mode === 'exclusive' ? 'Exclusive' : 'Shared'}</span><span class="size-tag">${size}×${size} grid</span>`;
+        }
+      } catch (_) {}
+    })();
   </script>
 </body>
 </html>

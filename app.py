@@ -11,6 +11,7 @@ Endpoints:
 - GET  /events/<room_id> -> SSE stream for room
 """
 
+import argparse
 import queue
 import os
 
@@ -18,7 +19,7 @@ from flask import Flask, jsonify, request, send_from_directory, redirect
 from flask import Response
 from typing import Dict, List, Tuple
 
-from defs import N, Team, CellState, color_mapping, max_hp, show_reset_button
+from defs import Team, CellState, color_mapping, max_hp, show_reset_button
 import state as S
 import calc_score as CS
 
@@ -52,10 +53,11 @@ def _enum_from_str_team(team_str: str) -> Team:
 
 
 def _card_payload(room: S.BingoRoomState) -> List[List[Dict]]:
+    n = room.size
     grid: List[List[Dict]] = []
-    for r in range(N):
+    for r in range(n):
         row: List[Dict] = []
-        for c in range(N):
+        for c in range(n):
             sc_id = room.spellcard_id_map.get((r, c))
             rec = (
                 S.spellcard_data.iloc[int(sc_id)]
@@ -73,12 +75,14 @@ def _card_payload(room: S.BingoRoomState) -> List[List[Dict]]:
 
 
 def _cells_payload(room: S.BingoRoomState) -> Dict[str, List[List[str]]]:
+    n = room.size
+
     def team_grid(team: Team) -> List[List[str]]:
         g: List[List[str]] = []
         d = room.team_cell_state_dict[team]
-        for r in range(N):
+        for r in range(n):
             row: List[str] = []
-            for c in range(N):
+            for c in range(n):
                 row.append(d[(r, c)].value)
             g.append(row)
         return g
@@ -118,7 +122,8 @@ def _pending_payload(room: S.BingoRoomState) -> Dict:
 
 def _state_payload(room: S.BingoRoomState, client_team: str) -> Dict:
     return {
-        "N": N,
+        "N": room.size,
+        "mode": room.mode,
         "card": _card_payload(room),
         "cells": _cells_payload(room),
         "sys": {"team": client_team, "op": "toggle_pending"},
@@ -141,15 +146,27 @@ def _clear_pending_for_team(room: S.BingoRoomState, team: Team) -> None:
             room.set_cell_state(team, k, CellState.UNCHECKED)
 
 
+def _other_team(team: Team) -> Team:
+    return Team.BLUE if team == Team.RED else Team.RED
+
+
 def _apply_click(room: S.BingoRoomState, team: Team, r: int, c: int) -> None:
     xy: Tuple[int, int] = (r, c)
     cur = room.get_cell_state(team, xy)
     if cur == CellState.PENDING:
         room.set_cell_state(team, xy, CellState.CHECKED)
         _clear_pending_for_team(room, team)
+        if room.mode == "exclusive":
+            other = _other_team(team)
+            if room.get_cell_state(other, xy) == CellState.PENDING:
+                room.set_cell_state(other, xy, CellState.UNCHECKED)
     elif cur == CellState.CHECKED:
         room.set_cell_state(team, xy, CellState.UNCHECKED)
     else:
+        if room.mode == "exclusive":
+            other = _other_team(team)
+            if room.get_cell_state(other, xy) == CellState.CHECKED:
+                return
         _clear_pending_for_team(room, team)
         room.set_cell_state(team, xy, CellState.PENDING)
 
@@ -162,6 +179,31 @@ def lobby():
     return send_from_directory(static_dir, "lobby.html")
 
 
+@app.route("/api/config")
+def api_config():
+    """Return server mode and size for lobby display."""
+    mode, size = S.get_server_config()
+    return jsonify({"mode": mode, "size": size})
+
+
+def _incompat_response(exc: S.RoomIncompatibleError) -> tuple:
+    mode, size = S.get_server_config()
+    return jsonify({
+        "ok": False,
+        "error": "Room incompatible",
+        "incompatible": True,
+        "message": (
+            f"This room was created with mode={exc.room_mode}, size={exc.room_size}. "
+            f"Current server settings: mode={mode}, size={size}. "
+            "Please use a new Room ID."
+        ),
+        "room_mode": exc.room_mode,
+        "room_size": exc.room_size,
+        "server_mode": mode,
+        "server_size": size,
+    }), 400
+
+
 @app.route("/api/lobby/join", methods=["POST"])
 def api_lobby_join():
     data = request.get_json(silent=True) or {}
@@ -171,7 +213,10 @@ def api_lobby_join():
         return jsonify({"error": "Room ID required"}), 400
     if team_str not in ("red", "blue"):
         return jsonify({"error": "Team must be red or blue"}), 400
-    room = S.get_room(room_id)
+    try:
+        room = S.get_room(room_id)
+    except S.RoomIncompatibleError as e:
+        return _incompat_response(e)
     return jsonify({"ok": True, "room": room_id, "team": team_str})
 
 
@@ -197,7 +242,10 @@ def api_state():
         team = _enum_from_str_team(team_str)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
-    room = S.get_room(room_id)
+    try:
+        room = S.get_room(room_id)
+    except S.RoomIncompatibleError as e:
+        return _incompat_response(e)
     return jsonify(_state_payload(room, team.value))
 
 
@@ -221,10 +269,12 @@ def api_click():
         r, c = int(r_raw), int(c_raw)
     except (TypeError, ValueError):
         return jsonify({"error": "Invalid r/c"}), 400
-    if not (0 <= r < N and 0 <= c < N):
+    try:
+        room = S.get_room(room_id)
+    except S.RoomIncompatibleError as e:
+        return _incompat_response(e)
+    if not (0 <= r < room.size and 0 <= c < room.size):
         return jsonify({"error": "Out of range"}), 400
-
-    room = S.get_room(room_id)
     with room.lock:
         _apply_click(room, team, r, c)
         S.save_room(room)
@@ -250,7 +300,10 @@ def api_hp():
     except (TypeError, ValueError):
         return jsonify({"error": "Invalid delta"}), 400
 
-    room = S.get_room(room_id)
+    try:
+        room = S.get_room(room_id)
+    except S.RoomIncompatibleError as e:
+        return _incompat_response(e)
     xy = room.get_pending_coord(team)
     if xy is None:
         return jsonify({"error": "No pending cell for team"}), 400
@@ -271,7 +324,10 @@ def api_reset():
     if not room_id:
         return jsonify({"error": "Missing room"}), 400
 
-    room = S.get_room(room_id)
+    try:
+        room = S.get_room(room_id)
+    except S.RoomIncompatibleError as e:
+        return _incompat_response(e)
     with room.lock:
         room.reset()
         S.save_room(room)
@@ -291,5 +347,21 @@ def is_serving_process(app) -> bool:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Spellcard Bingo server")
+    parser.add_argument(
+        "--mode",
+        choices=["shared", "exclusive"],
+        default="shared",
+        help="Game mode: shared (both teams can complete same cell) or exclusive (first-to-complete wins)",
+    )
+    parser.add_argument(
+        "--size",
+        type=int,
+        default=5,
+        metavar="N",
+        help="Grid size (NxN). Default: 5",
+    )
+    args = parser.parse_args()
+    S.set_server_config(args.mode, args.size)
     S.load_spellcard_data()
     app.run(debug=True, host="0.0.0.0")

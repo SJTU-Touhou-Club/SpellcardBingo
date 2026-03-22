@@ -37,6 +37,7 @@
   #hud .center { grid-column: 2; text-align:center; display:flex; align-items:center; justify-content:center; }
     #hud .right { grid-column: 3; display:flex; align-items:center; gap:8px; }
   #hud .team-label { font-size: 42px; font-weight: 900; justify-content:center; text-align:center; width:100%; }
+  #hud .mode-badge { font-size: 12px; font-weight: 700; text-transform: uppercase; color: #666; letter-spacing: 0.05em; }
   #hud .row-label { font-size: 20px; font-weight: 800; text-transform: uppercase; color:#555; letter-spacing: 0.04em; }
     #hud .score { justify-content:center; text-align:center; width:100%; }
     #hud .score strong {
@@ -89,7 +90,7 @@
 
   <div id="hud">
     <div class="left team-label" style="color:#EE5755">RED</div>
-    <div class="center"></div>
+    <div class="center mode-badge" id="mode-badge"></div>
     <div class="right team-label" style="color:#5557EE">BLUE</div>
 
   <div class="left score"><strong id="score-red">0</strong></div>
@@ -340,12 +341,22 @@
 
     async function fetchState() {
       const res = await fetch(`/state?${teamQ}`);
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        statusEl.textContent = 'Failed to load state';
+        if (data.incompatible && data.message) {
+          const msg = data.message + '\n\nUse a new Room ID and try again.';
+          if (confirm(msg + '\n\nClick OK to go back to the lobby.')) {
+            window.location.href = '/lobby';
+          }
+          statusEl.innerHTML = 'Room incompatible. <a href="/lobby">Back to Lobby</a>';
+        } else {
+          statusEl.textContent = data.error || 'Failed to load state';
+        }
         return;
       }
-      const data = await res.json();
       N = data.N || 8;
+      const modeEl = document.getElementById('mode-badge');
+      if (modeEl) modeEl.textContent = (data.mode || 'shared') === 'exclusive' ? 'Exclusive' : 'Shared';
       COLORS = data.colors || COLORS;
       SYS = data.sys || SYS;
       CARD = data.card || [];

@@ -262,6 +262,28 @@ import threading
 _ROOMS_DIR = "data/rooms"
 _bingo_rooms: Dict[str, "BingoRoomState"] = {}
 
+# Server config (set by app.py from CLI)
+_SERVER_MODE = "shared"
+_SERVER_SIZE = 5
+
+
+def set_server_config(mode: str, size: int) -> None:
+    global _SERVER_MODE, _SERVER_SIZE
+    _SERVER_MODE = mode
+    _SERVER_SIZE = size
+
+
+def get_server_config() -> tuple:
+    return (_SERVER_MODE, _SERVER_SIZE)
+
+
+class RoomIncompatibleError(Exception):
+    """Raised when a room on disk has different mode/size than server config."""
+
+    def __init__(self, room_mode: str, room_size: int):
+        self.room_mode = room_mode
+        self.room_size = room_size
+
 
 def _room_coord_key(xy: Coord) -> str:
     return f"{xy[0]},{xy[1]}"
@@ -299,9 +321,12 @@ def _room_deserialize_spellcard_map(data: Dict[str, int]) -> Dict[Coord, int]:
 class BingoRoomState:
     """Per-room game state: spellcard grid, cell states, HP (online mode)."""
 
-    def __init__(self, room_id: str, seed: int):
+    def __init__(self, room_id: str, seed: int, mode: str = "shared", size: int = 5):
         self.room_id = room_id
         self.seed = seed
+        self.mode = mode
+        self.size = size
+        self.bingo_bonus = 2 * size
         self.lock = threading.Lock()
         self.spellcard_id_map: Dict[Coord, int] = {}
         self.team_cell_state_dict: Dict[Team, CellStateDict] = {}
@@ -309,16 +334,13 @@ class BingoRoomState:
         self.spellcard_score_map: Dict[Coord, int] = {}
 
     def init_fresh(self) -> None:
+        n = self.size
         for team in [Team.RED, Team.BLUE]:
             self.team_cell_state_dict[team] = {
-                (i, j): CellState.UNCHECKED
-                for i in range(N)
-                for j in range(N)
+                (i, j): CellState.UNCHECKED for i in range(n) for j in range(n)
             }
             self.team_hp_dict[team] = {
-                (i, j): max_hp
-                for i in range(N)
-                for j in range(N)
+                (i, j): max_hp for i in range(n) for j in range(n)
             }
         self._sample_spellcard()
         self._init_spellcard_score_map()
@@ -327,16 +349,18 @@ class BingoRoomState:
         import random
         rng = random.Random(self.seed)
         total = len(spellcard_data)
-        sampled = rng.sample(range(total), N * N)
+        n = self.size
+        sampled = rng.sample(range(total), n * n)
         sampled = self._inject_privileged(sampled)
         self.spellcard_id_map = {
-            (i, j): sampled[i * N + j] for i in range(N) for j in range(N)
+            (i, j): sampled[i * n + j] for i in range(n) for j in range(n)
         }
 
     def _inject_privileged(self, sampled: List[int]) -> List[int]:
         import random
         rng = random.Random(self.seed + 1)
-        positions = rng.sample(range(N * N), len(privileged_spellcard_ids))
+        n = self.size
+        positions = rng.sample(range(n * n), len(privileged_spellcard_ids))
         to_evict = [sampled[pos] for pos in positions]
         for pos, sc_global_id in zip(positions, privileged_spellcard_ids):
             sc_ids = spellcard_data.index[
@@ -359,6 +383,8 @@ class BingoRoomState:
 
     def to_dict(self) -> dict:
         return {
+            "mode": self.mode,
+            "size": self.size,
             "spellcard_id_map": _room_serialize_spellcard_map(
                 self.spellcard_id_map
             ),
@@ -424,7 +450,18 @@ class BingoRoomState:
     @classmethod
     def from_dict(cls, room_id: str, data: dict) -> "BingoRoomState":
         seed = sum(ord(c) for c in room_id)
-        obj = cls(room_id, seed)
+        mode = data.get("mode", "shared")
+        size = data.get("size")
+        if size is None:
+            sm = data.get("spellcard_id_map", {})
+            if sm:
+                max_coord = max(
+                    (int(s.split(",")[0]), int(s.split(",")[1])) for s in sm
+                )
+                size = max(max_coord[0], max_coord[1]) + 1
+            else:
+                size = 5
+        obj = cls(room_id, seed, mode=mode, size=int(size))
         obj.spellcard_id_map = _room_deserialize_spellcard_map(
             data.get("spellcard_id_map", {})
         )
@@ -475,16 +512,19 @@ def ensure_spellcard_data_loaded() -> None:
 
 
 def get_room(room_id: str) -> BingoRoomState:
-    """Get or create room; load from disk if present (online mode)."""
+    """Get or create room; load from disk if present (online mode).
+    Raises RoomIncompatibleError if room on disk has different mode/size than server."""
     ensure_spellcard_data_loaded()
     if room_id in _bingo_rooms:
         return _bingo_rooms[room_id]
     loaded = _load_room_from_disk(room_id)
     if loaded is not None:
+        if loaded.mode != _SERVER_MODE or loaded.size != _SERVER_SIZE:
+            raise RoomIncompatibleError(loaded.mode, loaded.size)
         _bingo_rooms[room_id] = loaded
         return loaded
     seed = sum(ord(c) for c in room_id)
-    room = BingoRoomState(room_id, seed)
+    room = BingoRoomState(room_id, seed, mode=_SERVER_MODE, size=_SERVER_SIZE)
     room.init_fresh()
     _bingo_rooms[room_id] = room
     _save_room_to_disk(room)

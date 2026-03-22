@@ -37,9 +37,13 @@ This repository contains the UI for the Spellcard Bingo game used at the SJTU To
 
 ## Game Rules
 
-Two teams compete to gain higher scores, where each team member can challenge a limited number of spellcards. (Two teams may challenge and acquire same spellcard.)
+Two teams compete to gain higher scores, where each team member can challenge a limited number of spellcards.
 
-Spellcards are classified into different difficulty levels and assigned scores accordingly. Each bingo (row, column, diagonal) grants a bonus.
+**Game modes:**
+- **Shared (default):** Both teams may challenge and acquire the same spellcard. Cells can be completed independently by each team.
+- **Exclusive:** Each cell can be completed by only one team. Both teams may SELECT (pending) the same cell, but only the first to complete it wins. A team cannot SELECT a cell the opponent has already completed.
+
+Spellcards are classified into different difficulty levels and assigned scores accordingly. Each bingo (row, column, diagonal) grants a bonus (fixed in shared mode; `2×N` per line in exclusive mode).
 
 For a recording example, watch [this video](https://www.bilibili.com/video/BV1gQ2rBQEDC/?t=2610) (starts at ~43:30).
 
@@ -58,8 +62,11 @@ Requirements:
 Run the server:
 
 ```bash
-python app.py
+python app.py [--mode shared|exclusive] [--size N]
 ```
+
+- `--mode`: `shared` (default) or `exclusive`. In shared mode, both teams can complete the same cell; in exclusive mode, each cell can be owned by only one team.
+- `--size`: grid size N (default 5). The board is N×N.
 
 Open http://localhost:5000 in a browser.
 
@@ -91,6 +98,7 @@ For your team, cell clicks cycle through these states:
 3. Checked → Unchecked
 
 - A team can have at most one Pending cell at a time. Clicking an Unchecked cell when the team already has a Pending cell will move the Pending marker to the new cell.
+- **Exclusive mode:** You cannot SELECT (Pending) a cell the opponent has already completed. When you complete a cell, the opponent’s Pending on that cell (if any) is cleared.
 
 ### Adjusting HP
 
@@ -112,20 +120,28 @@ Click “Reset” to reinitialize everything.
 
 - Room state is saved to `data/rooms/{room_id}/state.json` after each mutation (click, hp, reset).
 - State persists across server restarts; rooms are loaded on first access.
+- Each room stores its game mode and grid size. If you start the server with different `--mode` or `--size`, existing rooms created under the old settings are incompatible. The app will prompt you to use a new Room ID; existing room data is never overwritten.
 
 ---
 
 ## Configurable Settings
 
+> Command line (`python app.py`)
+
+1. `--mode`: game mode (`shared` or `exclusive`). Default: `shared`.
+2. `--size`: grid size N. Default: `5`.
+
 > defs.py
 
-1. `N`: size of the grid
-2. `max_hp`: per spellcard+team HP
-3. `privileged_spellcard_ids`: special spellcards that are guaranteed to sample.
-4. `show_reset_btn`: whether to show the Reset button on the frontend (hide to avoid accidental clicks).
+1. `max_hp`: per spellcard+team HP
+2. `privileged_spellcard_ids`: special spellcards that are guaranteed to sample.
+3. `show_reset_btn`: whether to show the Reset button on the frontend (hide to avoid accidental clicks).
 
 > calc_score.py
-1. `def line_score(line_values: List[int]) -> int`: how bingo bonus is calculated.
+
+1. `def line_score(line_values: List[int], bingo_bonus_val: int = None) -> int`: how bingo bonus is calculated. Online rooms use `2×N` in exclusive mode.
+
+See `docs/exclusive-mode.md` for exclusive mode design details.
 
 ---
 
