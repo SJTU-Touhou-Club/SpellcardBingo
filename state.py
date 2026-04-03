@@ -1,11 +1,21 @@
 from defs import (
-  target_spellcard_data_path, target_checkpoint_path, 
-  CellStateDict, CellState, Team, Coord, OpType,
-  N, max_hp, privileged_spellcard_ids
+  target_checkpoint_path,
+  SPELLCARD_POOLS,
+  DEFAULT_SPELLCARD_POOL,
+  CellStateDict,
+  CellState,
+  Team,
+  Coord,
+  OpType,
+  N,
+  max_hp,
+  privileged_spellcard_ids,
+  exclusive_mode_cooldown,
 )
 import pandas as pd
 import pickle
 import os
+import time
 from typing import Dict, List, Optional
 
 # global state var
@@ -14,8 +24,10 @@ team_cell_state_dict: Dict[Team, CellStateDict] = {}
 team_hp_dict: Dict[Team, Dict[Coord, int]] = {}
 spellcard_id_map: Dict[Coord, int] = {}
 
-## always read afresh
+## always read afresh (default pool; offline mode)
 spellcard_data: pd.DataFrame = pd.DataFrame()
+## all pools for online rooms (key -> DataFrame)
+spellcard_data_by_pool: Dict[str, pd.DataFrame] = {}
 
 ## always calculated
 spellcard_score_map: Dict[Coord, int] = {}
@@ -103,49 +115,66 @@ def init_state(reset: bool = False):
   
 
 
-def load_spellcard_data():
-  df = pd.read_csv(target_spellcard_data_path)
-  
-  # drop Placeholder 1~6 columns
-  for i in range(1, 7):
-    placeholder_col = f"Placeholder{i}"
-    if placeholder_col in df.columns:
-      df = df.drop(columns=[placeholder_col])
-      
-  # drop where score is NaN, and warn if any
-  df['Score'] = pd.to_numeric(df['Score'], errors='coerce')
-  if df['Score'].isnull().any():
-    invalid_rows = df[df['Score'].isnull()]
+SPELLCARD_DATA_COLUMNS = [
+  "GlobalID", "SeriesID", "LocalID", "SpellcardName", "Score", "Comment",
+]
+
+
+def _parse_spellcard_csv(path: str) -> pd.DataFrame:
+  df = pd.read_csv(path)
+  missing = [c for c in SPELLCARD_DATA_COLUMNS if c not in df.columns]
+  if missing:
+    raise ValueError(
+      f"Spellcard CSV {path} missing required columns {missing}; "
+      f"expected exactly: {SPELLCARD_DATA_COLUMNS}"
+    )
+  df = df[SPELLCARD_DATA_COLUMNS].copy()
+
+  df["Score"] = pd.to_numeric(df["Score"], errors="coerce")
+  if df["Score"].isnull().any():
+    invalid_rows = df[df["Score"].isnull()]
     print("================================================================")
-    print(f"Warning: The following {len(invalid_rows)} rows have NaN Score and will be dropped:")
-    print(invalid_rows[['SeriesID', 'LocalID', 'SpellcardName']].head(10))
+    print(
+      f"Warning: The following {len(invalid_rows)} rows have NaN Score and will be dropped:"
+    )
+    print(invalid_rows[["SeriesID", "LocalID", "SpellcardName"]].head(10))
     print("......")
     print("================================================================")
-    df = df.dropna(subset=['Score'])
-    
-  # fill comment nan to ''
-  df['Comment'] = df['Comment'].fillna('')
-  
-  # if LocalID is NaN, replace to 0
-  df['LocalID'] = df['LocalID'].fillna(0)
+    df = df.dropna(subset=["Score"])
 
-  # Cast IDs to int
-  # for col in ['LocalID', 'GlobalID']:
-  for col in ['GlobalID']:
-    df[col] = pd.to_numeric(df[col], errors='coerce')
+  df["Comment"] = df["Comment"].fillna("")
+  df["LocalID"] = df["LocalID"].fillna(0)
 
-  # format 'CanonicalID' to "{SeriesID}-{LocalID}"
-  # if LocalID is 0, format it to "{SeriesID}-NonSpell" or "{SeriesID}-NS"
-  # Note: some LocalID is now 6A/6B, indicating the stage, so use str instead. NS is deprecated.
-  df['CanonicalID'] = df.apply(
-    lambda row: f"{row['SeriesID']}-{row['LocalID']}" 
-                if row['LocalID'] != 0 else 
-                f"{row['SeriesID']}-ns",
-    axis=1
+  for col in ["GlobalID"]:
+    df[col] = pd.to_numeric(df[col], errors="coerce")
+
+  df["CanonicalID"] = df.apply(
+    lambda row: f"{row['SeriesID']}-{row['LocalID']}"
+    if row["LocalID"] != 0
+    else f"{row['SeriesID']}-ns",
+    axis=1,
   )
-  
+  return df
+
+
+def load_all_spellcard_pools() -> None:
+  global spellcard_data_by_pool
+  spellcard_data_by_pool = {}
+  for pool_key, path in SPELLCARD_POOLS.items():
+    spellcard_data_by_pool[pool_key] = _parse_spellcard_csv(path)
+
+
+def get_spellcard_df(pool: str) -> pd.DataFrame:
+  if pool not in spellcard_data_by_pool:
+    raise KeyError(f"unknown spellcard pool {pool!r}")
+  return spellcard_data_by_pool[pool]
+
+
+def load_spellcard_data():
+  """Load every pool; set global `spellcard_data` to the default pool (offline mode)."""
+  load_all_spellcard_pools()
   global spellcard_data
-  spellcard_data = df
+  spellcard_data = spellcard_data_by_pool[DEFAULT_SPELLCARD_POOL]
 
 def init_team_cell_state_dict():
   global team_cell_state_dict
@@ -169,7 +198,7 @@ def sample_spellcard():
   sampled_indices = random.sample(range(total_spellcards), N * N)
   sampled_indices = inject_privileged_spellcard(
     sampled_indices,
-    privileged_spellcard_ids
+    privileged_spellcard_ids.get(DEFAULT_SPELLCARD_POOL, []),
   )
   spellcard_id_map = {
     (i, j): sampled_indices[i * N + j] for i in range(N) for j in range(N)
@@ -265,24 +294,27 @@ _bingo_rooms: Dict[str, "BingoRoomState"] = {}
 # Server config (set by app.py from CLI)
 _SERVER_MODE = "shared"
 _SERVER_SIZE = 5
+_SERVER_POOL = DEFAULT_SPELLCARD_POOL
 
 
-def set_server_config(mode: str, size: int) -> None:
-    global _SERVER_MODE, _SERVER_SIZE
+def set_server_config(mode: str, size: int, pool: str = DEFAULT_SPELLCARD_POOL) -> None:
+    global _SERVER_MODE, _SERVER_SIZE, _SERVER_POOL
     _SERVER_MODE = mode
     _SERVER_SIZE = size
+    _SERVER_POOL = pool if pool in SPELLCARD_POOLS else DEFAULT_SPELLCARD_POOL
 
 
 def get_server_config() -> tuple:
-    return (_SERVER_MODE, _SERVER_SIZE)
+    return (_SERVER_MODE, _SERVER_SIZE, _SERVER_POOL)
 
 
 class RoomIncompatibleError(Exception):
-    """Raised when a room on disk has different mode/size than server config."""
+    """Raised when a room on disk has different mode/size/pool than server config."""
 
-    def __init__(self, room_mode: str, room_size: int):
+    def __init__(self, room_mode: str, room_size: int, room_pool: str):
         self.room_mode = room_mode
         self.room_size = room_size
+        self.room_pool = room_pool
 
 
 def _room_coord_key(xy: Coord) -> str:
@@ -321,17 +353,32 @@ def _room_deserialize_spellcard_map(data: Dict[str, int]) -> Dict[Coord, int]:
 class BingoRoomState:
     """Per-room game state: spellcard grid, cell states, HP (online mode)."""
 
-    def __init__(self, room_id: str, seed: int, mode: str = "shared", size: int = 5):
+    def __init__(
+        self,
+        room_id: str,
+        seed: int,
+        mode: str = "shared",
+        size: int = 5,
+        pool: str = DEFAULT_SPELLCARD_POOL,
+    ):
         self.room_id = room_id
         self.seed = seed
         self.mode = mode
         self.size = size
+        self.pool = pool if pool in SPELLCARD_POOLS else DEFAULT_SPELLCARD_POOL
         self.bingo_bonus = 2 * size
         self.lock = threading.Lock()
         self.spellcard_id_map: Dict[Coord, int] = {}
         self.team_cell_state_dict: Dict[Team, CellStateDict] = {}
         self.team_hp_dict: Dict[Team, Dict[Coord, int]] = {}
         self.spellcard_score_map: Dict[Coord, int] = {}
+        self.team_cooldown_until: Dict[Team, float] = {
+            Team.RED: 0.0,
+            Team.BLUE: 0.0,
+        }
+
+    def _df(self) -> pd.DataFrame:
+        return get_spellcard_df(self.pool)
 
     def init_fresh(self) -> None:
         n = self.size
@@ -342,13 +389,14 @@ class BingoRoomState:
             self.team_hp_dict[team] = {
                 (i, j): max_hp for i in range(n) for j in range(n)
             }
+            self.team_cooldown_until[team] = 0.0
         self._sample_spellcard()
         self._init_spellcard_score_map()
 
     def _sample_spellcard(self) -> None:
         import random
         rng = random.Random(self.seed)
-        total = len(spellcard_data)
+        total = len(self._df())
         n = self.size
         sampled = rng.sample(range(total), n * n)
         sampled = self._inject_privileged(sampled)
@@ -360,11 +408,13 @@ class BingoRoomState:
         import random
         rng = random.Random(self.seed + 1)
         n = self.size
-        positions = rng.sample(range(n * n), len(privileged_spellcard_ids))
+        pool_privileged_ids = privileged_spellcard_ids.get(self.pool, [])
+        positions = rng.sample(range(n * n), len(pool_privileged_ids))
         to_evict = [sampled[pos] for pos in positions]
-        for pos, sc_global_id in zip(positions, privileged_spellcard_ids):
-            sc_ids = spellcard_data.index[
-                spellcard_data["GlobalID"] == sc_global_id
+        df = self._df()
+        for pos, sc_global_id in zip(positions, pool_privileged_ids):
+            sc_ids = df.index[
+                df["GlobalID"] == sc_global_id
             ].tolist()
             if len(sc_ids) != 1:
                 raise RuntimeError(
@@ -376,8 +426,9 @@ class BingoRoomState:
         return sampled
 
     def _init_spellcard_score_map(self) -> None:
+        df = self._df()
         self.spellcard_score_map = {
-            xy: int(spellcard_data.iloc[sc_id]["Score"])
+            xy: int(df.iloc[sc_id]["Score"])
             for xy, sc_id in self.spellcard_id_map.items()
         }
 
@@ -385,6 +436,7 @@ class BingoRoomState:
         return {
             "mode": self.mode,
             "size": self.size,
+            "pool": self.pool,
             "spellcard_id_map": _room_serialize_spellcard_map(
                 self.spellcard_id_map
             ),
@@ -395,6 +447,10 @@ class BingoRoomState:
             "team_hp_dict": {
                 t.value: _room_serialize_hp(d)
                 for t, d in self.team_hp_dict.items()
+            },
+            "team_cooldown_until": {
+                t.value: float(self.team_cooldown_until.get(t, 0.0))
+                for t in [Team.RED, Team.BLUE]
             },
         }
 
@@ -436,7 +492,7 @@ class BingoRoomState:
         sc_id = self.spellcard_id_map.get(xy)
         if sc_id is None:
             return {"name": "", "score": 0, "index": "", "comment": ""}
-        rec = spellcard_data.iloc[int(sc_id)]
+        rec = self._df().iloc[int(sc_id)]
         return {
             "name": str(rec.get("SpellcardName", "")),
             "score": int(rec.get("Score", 0)),
@@ -447,10 +503,30 @@ class BingoRoomState:
     def reset(self) -> None:
         self.init_fresh()
 
+    def get_cooldown_remaining(self, team: Team, now: Optional[float] = None) -> int:
+        if self.mode != "exclusive":
+            return 0
+        ts = now if now is not None else time.time()
+        remaining = float(self.team_cooldown_until.get(team, 0.0)) - ts
+        if remaining <= 0:
+            return 0
+        return int(remaining + 0.999999)
+
+    def start_cooldown(self, team: Team, now: Optional[float] = None) -> None:
+        if self.mode != "exclusive":
+            self.team_cooldown_until[team] = 0.0
+            return
+        ts = now if now is not None else time.time()
+        self.team_cooldown_until[team] = ts + float(exclusive_mode_cooldown)
+
+    def reset_cooldown(self, team: Team) -> None:
+        self.team_cooldown_until[team] = 0.0
+
     @classmethod
     def from_dict(cls, room_id: str, data: dict) -> "BingoRoomState":
         seed = sum(ord(c) for c in room_id)
         mode = data.get("mode", "shared")
+        pool = data.get("pool", DEFAULT_SPELLCARD_POOL)
         size = data.get("size")
         if size is None:
             sm = data.get("spellcard_id_map", {})
@@ -461,7 +537,7 @@ class BingoRoomState:
                 size = max(max_coord[0], max_coord[1]) + 1
             else:
                 size = 5
-        obj = cls(room_id, seed, mode=mode, size=int(size))
+        obj = cls(room_id, seed, mode=mode, size=int(size), pool=pool)
         obj.spellcard_id_map = _room_deserialize_spellcard_map(
             data.get("spellcard_id_map", {})
         )
@@ -472,6 +548,11 @@ class BingoRoomState:
         obj.team_hp_dict = {
             Team(t): _room_deserialize_hp(d)
             for t, d in data.get("team_hp_dict", {}).items()
+        }
+        raw_cd = data.get("team_cooldown_until", {}) or {}
+        obj.team_cooldown_until = {
+            Team.RED: float(raw_cd.get(Team.RED.value, 0.0) or 0.0),
+            Team.BLUE: float(raw_cd.get(Team.BLUE.value, 0.0) or 0.0),
         }
         obj._init_spellcard_score_map()
         return obj
@@ -507,26 +588,40 @@ def _save_room_to_disk(room: BingoRoomState) -> None:
 
 def ensure_spellcard_data_loaded() -> None:
     """Ensure global spellcard data is loaded (call before get_room)."""
-    if spellcard_data is None or len(spellcard_data) == 0:
+    if not spellcard_data_by_pool:
         load_spellcard_data()
 
 
-def get_room(room_id: str, create_mode: Optional[str] = None) -> BingoRoomState:
+def get_room(
+    room_id: str,
+    create_mode: Optional[str] = None,
+    create_pool: Optional[str] = None,
+) -> BingoRoomState:
     """Get or create room; load from disk if present (online mode).
     create_mode: mode for new rooms (used when room does not exist). Default: server mode.
-    Raises RoomIncompatibleError if room on disk has different size than server."""
+    create_pool: pool key for new rooms (used when room does not exist). Default: server pool.
+    Raises RoomIncompatibleError if room on disk has different size/pool than requested."""
     ensure_spellcard_data_loaded()
+    requested_pool = create_pool if create_pool in SPELLCARD_POOLS else None
     if room_id in _bingo_rooms:
-        return _bingo_rooms[room_id]
+        cached = _bingo_rooms[room_id]
+        if cached.size != _SERVER_SIZE:
+            raise RoomIncompatibleError(cached.mode, cached.size, cached.pool)
+        if requested_pool is not None and cached.pool != requested_pool:
+            raise RoomIncompatibleError(cached.mode, cached.size, cached.pool)
+        return cached
     loaded = _load_room_from_disk(room_id)
     if loaded is not None:
         if loaded.size != _SERVER_SIZE:
-            raise RoomIncompatibleError(loaded.mode, loaded.size)
+            raise RoomIncompatibleError(loaded.mode, loaded.size, loaded.pool)
+        if requested_pool is not None and loaded.pool != requested_pool:
+            raise RoomIncompatibleError(loaded.mode, loaded.size, loaded.pool)
         _bingo_rooms[room_id] = loaded
         return loaded
     seed = sum(ord(c) for c in room_id)
     mode = create_mode if create_mode in ("shared", "exclusive") else _SERVER_MODE
-    room = BingoRoomState(room_id, seed, mode=mode, size=_SERVER_SIZE)
+    pool = requested_pool if requested_pool is not None else _SERVER_POOL
+    room = BingoRoomState(room_id, seed, mode=mode, size=_SERVER_SIZE, pool=pool)
     room.init_fresh()
     _bingo_rooms[room_id] = room
     _save_room_to_disk(room)

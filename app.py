@@ -2,12 +2,12 @@
 
 Endpoints:
 - GET  /lobby         -> serve lobby page
-- POST /api/lobby/join -> { room, team } -> create/join room, redirect to game
-- GET  /              -> require ?room= & ?team=, else redirect to /lobby
-- GET  /state         -> ?room= & ?team= -> full state payload
-- POST /click         -> ?room= & ?team=, body { r, c } -> apply click for team
-- POST /hp            -> ?room= & ?team=, body { team, delta } -> adjust HP
-- POST /reset         -> ?room= -> reset room (if allowed)
+- POST /api/lobby/join -> { room, team, mode, pool } -> create/join room, redirect to game
+- GET  /              -> require ?room= & ?team=(red|blue|observer), else redirect to /lobby
+- GET  /state         -> ?room= & ?team= -> full state payload (observer allowed)
+- POST /click         -> ?room= & ?team= -> apply click for team (observer forbidden)
+- POST /hp            -> ?room= & ?team=, body { team, delta } -> adjust HP (observer forbidden)
+- POST /reset         -> ?room= & ?team= -> reset room (observer forbidden)
 - GET  /events/<room_id> -> SSE stream for room
 """
 
@@ -19,11 +19,20 @@ from flask import Flask, jsonify, request, send_from_directory, redirect
 from flask import Response
 from typing import Dict, List, Tuple
 
-from defs import Team, CellState, color_mapping, max_hp, show_reset_button
+from defs import (
+    Team,
+    CellState,
+    color_mapping,
+    max_hp,
+    show_reset_button,
+    SPELLCARD_POOLS,
+    DEFAULT_SPELLCARD_POOL,
+)
 import state as S
 import calc_score as CS
 
 app = Flask(__name__, static_folder="static", static_url_path="")
+VALID_CLIENT_TEAMS = ("red", "blue", "observer")
 
 # SSE event queues per room
 event_queues: Dict[str, list] = {}
@@ -52,23 +61,25 @@ def _enum_from_str_team(team_str: str) -> Team:
     raise ValueError(f"Invalid team: {team_str}")
 
 
+def _normalize_client_team(team_str: str) -> str:
+    s = (team_str or "").lower().strip()
+    if s not in VALID_CLIENT_TEAMS:
+        raise ValueError(f"Invalid team: {team_str}")
+    return s
+
+
 def _card_payload(room: S.BingoRoomState) -> List[List[Dict]]:
     n = room.size
     grid: List[List[Dict]] = []
     for r in range(n):
         row: List[Dict] = []
         for c in range(n):
-            sc_id = room.spellcard_id_map.get((r, c))
-            rec = (
-                S.spellcard_data.iloc[int(sc_id)]
-                if sc_id is not None
-                else None
-            )
+            rec = room.get_spellcard((r, c))
             row.append({
-                "name": None if rec is None else str(rec.get("SpellcardName", "")),
-                "score": 0 if rec is None else int(rec.get("Score", 0)),
-                "index": None if rec is None else str(rec.get("CanonicalID", "")),
-                "comment": None if rec is None else str(rec.get("Comment", "")),
+                "name": str(rec.get("name", "")),
+                "score": int(rec.get("score", 0)),
+                "index": str(rec.get("index", "")),
+                "comment": str(rec.get("comment", "")),
             })
         grid.append(row)
     return grid
@@ -120,10 +131,18 @@ def _pending_payload(room: S.BingoRoomState) -> Dict:
     }
 
 
+def _cooldown_payload(room: S.BingoRoomState) -> Dict[str, int]:
+    return {
+        Team.RED.value: int(room.get_cooldown_remaining(Team.RED)),
+        Team.BLUE.value: int(room.get_cooldown_remaining(Team.BLUE)),
+    }
+
+
 def _state_payload(room: S.BingoRoomState, client_team: str) -> Dict:
     return {
         "N": room.size,
         "mode": room.mode,
+        "pool": room.pool,
         "card": _card_payload(room),
         "cells": _cells_payload(room),
         "sys": {"team": client_team, "op": "toggle_pending"},
@@ -134,6 +153,7 @@ def _state_payload(room: S.BingoRoomState, client_team: str) -> Dict:
         },
         "scores": _scores_payload(room),
         "pending": _pending_payload(room),
+        "cooldown": _cooldown_payload(room),
         "show_reset_button": show_reset_button,
         "team": client_team,
     }
@@ -154,14 +174,19 @@ def _apply_click(room: S.BingoRoomState, team: Team, r: int, c: int) -> None:
     xy: Tuple[int, int] = (r, c)
     cur = room.get_cell_state(team, xy)
     if cur == CellState.PENDING:
+        if room.mode == "exclusive" and room.get_cooldown_remaining(team) > 0:
+            # In exclusive mode, cooldown blocks completion but not selection.
+            return
         room.set_cell_state(team, xy, CellState.CHECKED)
         _clear_pending_for_team(room, team)
+        room.start_cooldown(team)
         if room.mode == "exclusive":
             other = _other_team(team)
             if room.get_cell_state(other, xy) == CellState.PENDING:
                 room.set_cell_state(other, xy, CellState.UNCHECKED)
     elif cur == CellState.CHECKED:
         room.set_cell_state(team, xy, CellState.UNCHECKED)
+        room.reset_cooldown(team)
     else:
         if room.mode == "exclusive":
             other = _other_team(team)
@@ -182,25 +207,32 @@ def lobby():
 @app.route("/api/config")
 def api_config():
     """Return server mode and size for lobby display."""
-    mode, size = S.get_server_config()
-    return jsonify({"mode": mode, "size": size})
+    mode, size, pool = S.get_server_config()
+    return jsonify({
+        "mode": mode,
+        "size": size,
+        "pool": pool,
+        "pools": sorted(SPELLCARD_POOLS.keys()),
+    })
 
 
 def _incompat_response(exc: S.RoomIncompatibleError) -> tuple:
-    mode, size = S.get_server_config()
+    mode, size, pool = S.get_server_config()
     return jsonify({
         "ok": False,
         "error": "Room incompatible",
         "incompatible": True,
         "message": (
-            f"This room was created with mode={exc.room_mode}, size={exc.room_size}. "
-            f"Current server settings: mode={mode}, size={size}. "
+            f"This room was created with mode={exc.room_mode}, size={exc.room_size}, pool={exc.room_pool}. "
+            f"Current server settings: mode={mode}, size={size}, pool={pool}. "
             "Please use a new Room ID."
         ),
         "room_mode": exc.room_mode,
         "room_size": exc.room_size,
+        "room_pool": exc.room_pool,
         "server_mode": mode,
         "server_size": size,
+        "server_pool": pool,
     }), 400
 
 
@@ -210,15 +242,24 @@ def api_lobby_join():
     room_id = (data.get("room") or "").strip()
     team_str = (data.get("team") or "").lower()
     create_mode = (data.get("mode") or "").lower().strip() or None
+    create_pool = (data.get("pool") or "").lower().strip() or None
     if not room_id:
         return jsonify({"error": "Room ID required"}), 400
-    if team_str not in ("red", "blue"):
-        return jsonify({"error": "Team must be red or blue"}), 400
+    if team_str not in VALID_CLIENT_TEAMS:
+        return jsonify({"error": "Team must be red, blue, or observer"}), 400
+    if create_pool is not None and create_pool not in SPELLCARD_POOLS:
+        return jsonify({"error": f"Pool must be one of: {', '.join(sorted(SPELLCARD_POOLS.keys()))}"}), 400
     try:
-        room = S.get_room(room_id, create_mode=create_mode)
+        room = S.get_room(room_id, create_mode=create_mode, create_pool=create_pool)
     except S.RoomIncompatibleError as e:
         return _incompat_response(e)
-    return jsonify({"ok": True, "room": room_id, "team": team_str, "mode": room.mode})
+    return jsonify({
+        "ok": True,
+        "room": room_id,
+        "team": team_str,
+        "mode": room.mode,
+        "pool": room.pool,
+    })
 
 
 @app.route("/")
@@ -227,7 +268,7 @@ def index():
     team_str = request.args.get("team")
     if not room_id or not team_str:
         return redirect("/lobby")
-    if team_str.lower() not in ("red", "blue"):
+    if team_str.lower() not in VALID_CLIENT_TEAMS:
         return redirect("/lobby")
     static_dir = app.static_folder or os.path.join(os.path.dirname(__file__), "static")
     return send_from_directory(static_dir, "index.html")
@@ -240,14 +281,14 @@ def api_state():
     if not room_id or not team_str:
         return jsonify({"error": "Missing room or team"}), 400
     try:
-        team = _enum_from_str_team(team_str)
+        client_team = _normalize_client_team(team_str)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     try:
         room = S.get_room(room_id)
     except S.RoomIncompatibleError as e:
         return _incompat_response(e)
-    return jsonify(_state_payload(room, team.value))
+    return jsonify(_state_payload(room, client_team))
 
 
 @app.route("/click", methods=["POST"])
@@ -257,9 +298,12 @@ def api_click():
     if not room_id or not team_str:
         return jsonify({"error": "Missing room or team"}), 400
     try:
-        team = _enum_from_str_team(team_str)
+        client_team = _normalize_client_team(team_str)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+    if client_team == "observer":
+        return jsonify({"error": "Observer cannot click"}), 403
+    team = _enum_from_str_team(client_team)
 
     data = request.get_json(force=True) or {}
     r_raw = data.get("r")
@@ -290,9 +334,12 @@ def api_hp():
     if not room_id or not team_str:
         return jsonify({"error": "Missing room or team"}), 400
     try:
-        team = _enum_from_str_team(team_str)
+        client_team = _normalize_client_team(team_str)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+    if client_team == "observer":
+        return jsonify({"error": "Observer cannot adjust HP"}), 403
+    team = _enum_from_str_team(client_team)
 
     data = request.get_json(force=True) or {}
     delta = data.get("delta", 0)
@@ -322,8 +369,17 @@ def api_reset():
         return jsonify({"error": "Reset button disabled"}), 403
 
     room_id = request.args.get("room")
+    team_str = request.args.get("team")
     if not room_id:
         return jsonify({"error": "Missing room"}), 400
+    if not team_str:
+        return jsonify({"error": "Missing team"}), 400
+    try:
+        client_team = _normalize_client_team(team_str)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if client_team == "observer":
+        return jsonify({"error": "Observer cannot reset"}), 403
 
     try:
         room = S.get_room(room_id)
@@ -363,12 +419,18 @@ if __name__ == "__main__":
         help="Grid size (NxN). Default: 5",
     )
     parser.add_argument(
+        "--pool",
+        choices=sorted(SPELLCARD_POOLS.keys()),
+        default=DEFAULT_SPELLCARD_POOL,
+        help="Default spellcard pool key for new rooms.",
+    )
+    parser.add_argument(
         "--port",
         type=int,
         default=5000,
         help="Port to listen on. Default: 5000",
     )
     args = parser.parse_args()
-    S.set_server_config(args.mode, args.size)
+    S.set_server_config(args.mode, args.size, args.pool)
     S.load_spellcard_data()
     app.run(debug=True, host="0.0.0.0", port=args.port)

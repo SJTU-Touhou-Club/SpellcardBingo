@@ -23,25 +23,47 @@
       border-radius: 12px;
       box-shadow: 0 8px 30px rgba(0,0,0,0.12);
       width: min(400px, 92vw);
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
     }
     h1 { margin: 0 0 20px; font-size: 22px; }
     .row { display: flex; gap: 10px; margin: 14px 0; align-items: center; }
     .row label { min-width: 80px; font-weight: 700; }
     input[type="text"] { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
-    .mode-row, .team-row { display: flex; gap: 12px; align-items: center; margin: 14px 0; }
-    .mode-row label, .team-row label { margin-right: 8px; font-weight: 700; }
-    .mode-btn {
-      padding: 10px 20px;
-      border-radius: 999px;
-      border: 2px solid #555;
-      font-size: 14px;
+    .settings-block { width: 100%; margin: 10px 0 6px; align-self: stretch; }
+    .setting-row {
+      display: grid;
+      grid-template-columns: 44px 1fr;
+      column-gap: 8px;
+      align-items: baseline;
+      margin: 6px 0;
+    }
+    .setting-label {
+      font-size: 11px;
       font-weight: 700;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      line-height: 1.2;
+      padding-top: 2px;
+    }
+    .setting-buttons { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .seg-btn {
+      padding: 4px 11px;
+      border-radius: 999px;
+      border: 1px solid #666;
+      font-size: 12px;
+      font-weight: 600;
       background: #fff;
       cursor: pointer;
       transition: 0.15s;
+      line-height: 1.2;
     }
-    .mode-btn:hover { border-color: #333; background: #f5f5f5; }
-    .mode-btn.selected { background: #333; color: #fff; border-color: #333; }
+    .seg-btn:hover { border-color: #333; background: #f7f7f7; }
+    .seg-btn.selected { background: #333; color: #fff; border-color: #333; }
+    .team-row { display: flex; gap: 12px; align-items: center; margin: 14px 0; }
+    .team-row label { margin-right: 8px; font-weight: 700; }
     .team-btn {
       padding: 10px 20px;
       border-radius: 999px;
@@ -57,6 +79,8 @@
     .team-btn.red:hover, .team-btn.red.selected { background: #EE5755; color: #fff; }
     .team-btn.blue { border-color: #5557EE; color: #5557EE; }
     .team-btn.blue:hover, .team-btn.blue.selected { background: #5557EE; color: #fff; }
+    .team-btn.observer { border-color: #666; color: #444; }
+    .team-btn.observer:hover, .team-btn.observer.selected { background: #666; color: #fff; }
     .btn { padding: 10px 20px; border-radius: 10px; border: 2px solid #ddd; background: #fff; cursor: pointer; font-weight: 700; }
     .btn:hover { background: #f0f0f0; border-color: #bbb; }
     .primary { color: #fff; margin-top: 8px; transition: background 0.15s, border-color 0.15s; }
@@ -77,15 +101,27 @@
       <label for="room">Room ID</label>
       <input id="room" type="text" placeholder="e.g. abc123" />
     </div>
-    <div class="mode-row">
-      <label>Mode</label>
-      <button id="mode-shared" class="mode-btn selected" type="button">Shared</button>
-      <button id="mode-exclusive" class="mode-btn" type="button">Exclusive</button>
+    <div class="settings-block">
+      <div class="setting-row">
+        <span class="setting-label">Mode</span>
+        <div class="setting-buttons">
+          <button id="mode-shared" class="seg-btn selected" type="button">Shared</button>
+          <button id="mode-exclusive" class="seg-btn" type="button">Exclusive</button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label">Pool</span>
+        <div class="setting-buttons">
+          <button id="pool-normal" class="seg-btn selected" type="button">Normal</button>
+          <button id="pool-lunatic" class="seg-btn" type="button">Lunatic</button>
+        </div>
+      </div>
     </div>
     <div class="team-row">
       <label>Team</label>
       <button id="team-red" class="team-btn red" type="button">RED</button>
       <button id="team-blue" class="team-btn blue selected" type="button">BLUE</button>
+      <button id="team-observer" class="team-btn observer" type="button">Observer</button>
     </div>
     <div style="display: flex; justify-content: flex-end;">
       <button id="go" class="btn primary team-blue">Join</button>
@@ -96,27 +132,45 @@
     const goBtn = document.getElementById('go');
     const teamRedBtn = document.getElementById('team-red');
     const teamBlueBtn = document.getElementById('team-blue');
+    const teamObserverBtn = document.getElementById('team-observer');
     const modeSharedBtn = document.getElementById('mode-shared');
     const modeExclusiveBtn = document.getElementById('mode-exclusive');
+    const poolNormalBtn = document.getElementById('pool-normal');
+    const poolLunaticBtn = document.getElementById('pool-lunatic');
 
     let selectedTeam = 'blue';
     let selectedMode = 'shared';
+    let selectedPool = 'normal';
 
     function updatePlayButton() {
       goBtn.classList.remove('team-red', 'team-blue');
-      goBtn.classList.add(selectedTeam === 'red' ? 'team-red' : 'team-blue');
+      if (selectedTeam === 'red') {
+        goBtn.classList.add('team-red');
+      } else if (selectedTeam === 'blue') {
+        goBtn.classList.add('team-blue');
+      }
+      goBtn.textContent = selectedTeam === 'observer' ? 'Observe' : 'Join';
+    }
+
+    function updateTeamButtons() {
+      teamRedBtn.classList.toggle('selected', selectedTeam === 'red');
+      teamBlueBtn.classList.toggle('selected', selectedTeam === 'blue');
+      teamObserverBtn.classList.toggle('selected', selectedTeam === 'observer');
     }
 
     teamRedBtn.addEventListener('click', () => {
       selectedTeam = 'red';
-      teamRedBtn.classList.add('selected');
-      teamBlueBtn.classList.remove('selected');
+      updateTeamButtons();
       updatePlayButton();
     });
     teamBlueBtn.addEventListener('click', () => {
       selectedTeam = 'blue';
-      teamBlueBtn.classList.add('selected');
-      teamRedBtn.classList.remove('selected');
+      updateTeamButtons();
+      updatePlayButton();
+    });
+    teamObserverBtn.addEventListener('click', () => {
+      selectedTeam = 'observer';
+      updateTeamButtons();
       updatePlayButton();
     });
 
@@ -134,6 +188,20 @@
       updateModeButtons();
     });
 
+    function updatePoolButtons() {
+      poolNormalBtn.classList.toggle('selected', selectedPool === 'normal');
+      poolLunaticBtn.classList.toggle('selected', selectedPool === 'lunatic');
+    }
+
+    poolNormalBtn.addEventListener('click', () => {
+      selectedPool = 'normal';
+      updatePoolButtons();
+    });
+    poolLunaticBtn.addEventListener('click', () => {
+      selectedPool = 'lunatic';
+      updatePoolButtons();
+    });
+
     function post(url, body) {
       return fetch(url, {
         method: 'POST',
@@ -149,7 +217,12 @@
         return;
       }
       goBtn.disabled = true;
-      const res = await post('/api/lobby/join', { room, team: selectedTeam, mode: selectedMode });
+      const res = await post('/api/lobby/join', {
+        room,
+        team: selectedTeam,
+        mode: selectedMode,
+        pool: selectedPool,
+      });
       if (res.incompatible) {
         goBtn.disabled = false;
         alert(res.message || 'This room was created with different settings. Please use a new Room ID.');
@@ -172,11 +245,16 @@
         const cfg = await fetch('/api/config').then(r => r.json());
         const mode = cfg.mode || 'shared';
         const size = cfg.size || 5;
+        const pool = cfg.pool || 'normal';
         selectedMode = mode === 'exclusive' ? 'exclusive' : 'shared';
+        selectedPool = pool === 'lunatic' ? 'lunatic' : 'normal';
+        updateTeamButtons();
+        updatePlayButton();
         updateModeButtons();
+        updatePoolButtons();
         const el = document.getElementById('game-info');
         if (el) {
-          el.innerHTML = `<span class="badge">Default: ${mode === 'exclusive' ? 'Exclusive' : 'Shared'}</span><span class="size-tag">${size}×${size} grid</span>`;
+          el.innerHTML = `<span class="badge">Default: ${mode === 'exclusive' ? 'Exclusive' : 'Shared'} / ${selectedPool === 'lunatic' ? 'Lunatic' : 'Normal'}</span><span class="size-tag">${size}×${size} grid</span>`;
         }
       } catch (_) {}
     })();

@@ -21,11 +21,11 @@
     }
     h1 { margin:8px 0 16px; }
     #board { display:grid; gap: var(--gap); }
-    /* HUD layout: 3 columns (left | center | right), 3 rows (labels, score, hp) */
+    /* HUD layout: 3 columns (left | center | right), 4 rows (labels, score, hp, cd) */
     #hud {
       display:grid;
       grid-template-columns: 1fr 80px 1fr;
-      grid-template-rows: auto auto auto;
+      grid-template-rows: auto auto auto auto;
       gap: 6px 16px; /* tighter row gap to bring label and score closer */
       align-items:center;
       width:100%;
@@ -37,7 +37,27 @@
   #hud .center { grid-column: 2; text-align:center; display:flex; align-items:center; justify-content:center; }
     #hud .right { grid-column: 3; display:flex; align-items:center; gap:8px; }
   #hud .team-label { font-size: 42px; font-weight: 900; justify-content:center; text-align:center; width:100%; }
+  #hud .hud-center-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    line-height: 1.15;
+  }
   #hud .mode-badge { font-size: 12px; font-weight: 700; text-transform: uppercase; color: #666; letter-spacing: 0.05em; }
+  #hud .pool-badge { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #888; letter-spacing: 0.05em; }
+  #hud .observer-badge {
+    margin-top: 2px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: #fff;
+    background: #555;
+    display: none;
+  }
   #hud .row-label { font-size: 20px; font-weight: 800; text-transform: uppercase; color:#555; letter-spacing: 0.04em; }
     #hud .score { justify-content:center; text-align:center; width:100%; }
     #hud .score strong {
@@ -50,6 +70,13 @@
   #hud .hp button { padding:8px 12px; font-size: 16px; }
   #hud .hp span {
     min-width: 32px; display:inline-block; text-align:center; font-weight:800; font-size: 20px;
+    background: rgba(255,255,255,0.6);
+    padding: 2px 8px; border-radius: 10px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+  }
+  #hud .cd { justify-content:center; text-align:center; width:100%; }
+  #hud .cd span {
+    min-width: 32px; display:inline-block; text-align:center; font-weight:800; font-size: 16px;
     background: rgba(255,255,255,0.6);
     padding: 2px 8px; border-radius: 10px;
     box-shadow: 0 1px 2px rgba(0,0,0,0.08);
@@ -90,7 +117,11 @@
 
   <div id="hud">
     <div class="left team-label" style="color:#EE5755">RED</div>
-    <div class="center mode-badge" id="mode-badge"></div>
+    <div class="center hud-center-meta">
+      <div class="mode-badge" id="mode-badge"></div>
+      <div class="pool-badge" id="pool-badge"></div>
+      <div class="observer-badge" id="observer-badge">Observer</div>
+    </div>
     <div class="right team-label" style="color:#5557EE">BLUE</div>
 
   <div class="left score"><strong id="score-red">0</strong></div>
@@ -108,6 +139,10 @@
       <span id="hp-blue-value">--</span>
       <button id="hp-blue-inc">+</button>
     </div>
+
+    <div class="left cd"><span id="cd-red-value">✅</span></div>
+    <div class="center row-label">cd</div>
+    <div class="right cd"><span id="cd-blue-value">✅</span></div>
   </div>
 
   <div id="select-row">
@@ -129,7 +164,8 @@
     const params = new URLSearchParams(window.location.search);
     const roomId = params.get('room');
     const clientTeam = (params.get('team') || '').toLowerCase();
-    if (!roomId || !['red', 'blue'].includes(clientTeam)) {
+    const isObserver = clientTeam === 'observer';
+    if (!roomId || !['red', 'blue', 'observer'].includes(clientTeam)) {
       window.location.href = '/lobby';
     }
 
@@ -145,12 +181,20 @@
     let CARD = [];
     let CELLS = { red: [], blue: [] };
     let PENDING = { red: { xy: null, hp: null }, blue: { xy: null, hp: null }, max_hp: 5 };
+    let COOLDOWN = { red: 0, blue: 0 };
 
     function setActiveButtons() {
       const redBtn = document.getElementById('team-red');
       const blueBtn = document.getElementById('team-blue');
-      redBtn.textContent = clientTeam === 'red' ? 'you' : '';
-      blueBtn.textContent = clientTeam === 'blue' ? 'you' : '';
+      const observerBadge = document.getElementById('observer-badge');
+      if (isObserver) {
+        redBtn.textContent = 'guest';
+        blueBtn.textContent = 'guest';
+      } else {
+        redBtn.textContent = clientTeam === 'red' ? 'you' : '';
+        blueBtn.textContent = clientTeam === 'blue' ? 'you' : '';
+      }
+      if (observerBadge) observerBadge.style.display = isObserver ? 'inline-block' : 'none';
       redBtn.classList.toggle('active', clientTeam === 'red');
       blueBtn.classList.toggle('active', clientTeam === 'blue');
       redBtn.disabled = true;
@@ -333,7 +377,11 @@
           }
           cell.appendChild(bottomLeft);
           cell.appendChild(bottomRight);
-          cell.addEventListener('click', () => onCellClick(r, c));
+          if (isObserver) {
+            cell.style.cursor = 'default';
+          } else {
+            cell.addEventListener('click', () => onCellClick(r, c));
+          }
           boardEl.appendChild(cell);
         }
       }
@@ -356,7 +404,9 @@
       }
       N = data.N || 8;
       const modeEl = document.getElementById('mode-badge');
+      const poolEl = document.getElementById('pool-badge');
       if (modeEl) modeEl.textContent = (data.mode || 'shared') === 'exclusive' ? 'Exclusive' : 'Shared';
+      if (poolEl) poolEl.textContent = (data.pool || 'normal') === 'lunatic' ? 'Lunatic' : 'Normal';
       COLORS = data.colors || COLORS;
       SYS = data.sys || SYS;
       CARD = data.card || [];
@@ -365,18 +415,21 @@
       document.getElementById('score-red').textContent = String(scores.red || 0);
       document.getElementById('score-blue').textContent = String(scores.blue || 0);
       PENDING = data.pending || PENDING;
+      COOLDOWN = data.cooldown || COOLDOWN;
 
       const resetBtn = document.getElementById('reset-btn');
       if (resetBtn) {
-        resetBtn.style.display = data.show_reset_button ? 'inline-block' : 'none';
+        resetBtn.style.display = data.show_reset_button && !isObserver ? 'inline-block' : 'none';
       }
 
       setActiveButtons();
       renderBoard();
       updateHpUI();
+      updateCdUI();
     }
 
     async function onCellClick(r, c) {
+      if (isObserver) return;
       await fetch(`/click?${teamQ}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -388,7 +441,8 @@
     const resetBtn = document.getElementById('reset-btn');
     if (resetBtn) {
       resetBtn.addEventListener('click', async () => {
-        await fetch(`/reset?room=${encodeURIComponent(roomId)}`, { method: 'POST' });
+        if (isObserver) return;
+        await fetch(`/reset?${teamQ}`, { method: 'POST' });
         await fetchState();
       });
     }
@@ -404,8 +458,8 @@
       const rHP = PENDING?.red?.hp;
       const bHP = PENDING?.blue?.hp;
       const MAX = PENDING?.max_hp ?? 5;
-      const canEditRed = clientTeam === 'red';
-      const canEditBlue = clientTeam === 'blue';
+      const canEditRed = clientTeam === 'red' && !isObserver;
+      const canEditBlue = clientTeam === 'blue' && !isObserver;
 
       if (rHP == null) {
         redV.textContent = '--';
@@ -428,7 +482,17 @@
       }
     }
 
+    function updateCdUI() {
+      const red = document.getElementById('cd-red-value');
+      const blue = document.getElementById('cd-blue-value');
+      const r = Number(COOLDOWN?.red || 0);
+      const b = Number(COOLDOWN?.blue || 0);
+      red.textContent = r > 0 ? `${r}s` : '✅';
+      blue.textContent = b > 0 ? `${b}s` : '✅';
+    }
+
     async function hpAdjust(team, delta) {
+      if (isObserver) return;
       if (team !== clientTeam) return;
       const res = await fetch(`/hp?${teamQ}`, {
         method: 'POST',
@@ -448,6 +512,13 @@
     evtSource.onmessage = (e) => {
       if (e.data === 'state_updated') fetchState();
     };
+
+    // Smooth local countdown display between server pushes.
+    setInterval(() => {
+      if (COOLDOWN.red > 0) COOLDOWN.red -= 1;
+      if (COOLDOWN.blue > 0) COOLDOWN.blue -= 1;
+      updateCdUI();
+    }, 1000);
 
     fetchState().catch(err => { statusEl.textContent = 'Failed to load state'; console.error(err); });
   </script>

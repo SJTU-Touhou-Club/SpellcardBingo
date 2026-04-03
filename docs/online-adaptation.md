@@ -8,14 +8,14 @@
 
 ## 1. Executive Summary
 
-This document describes the design for adapting the local Spellcard Bingo game into an online, multi-user version. The adaptation introduces room-based play, team selection (BLUE/RED), support for multiple connections per team (for reconnects), and persistent state storage. The design draws on patterns from the `local_reference` project (Geography Guesser) for lobby flow, room-scoped API, and Server-Sent Events (SSE), while adapting Spellcard Bingo’s state model and adding file-based persistence.
+This document describes the design for adapting the local Spellcard Bingo game into an online, multi-user version. The adaptation introduces room-based play, team selection (BLUE/RED/Observer), spellcard pool selection (Normal/Lunatic), exclusive-mode cooldown, support for multiple connections per team (for reconnects), and persistent state storage. The design draws on patterns from the `local_reference` project (Geography Guesser) for lobby flow, room-scoped API, and Server-Sent Events (SSE), while adapting Spellcard Bingo’s state model and adding file-based persistence.
 
 ---
 
 ## 2. Goals and Constraints
 
-- **Online play:** Two users (or parties) play over the internet, each representing a team (BLUE or RED).
-- **Room mechanism:** Players enter a room ID and select a team (BLUE/RED). There is no automatic matching logic—players join directly.
+- **Online play:** Two users (or parties) play over the internet, each representing a team (BLUE or RED). Additional users can join as Observer.
+- **Room mechanism:** Players enter a room ID and select a team (BLUE/RED/Observer), mode (Shared/Exclusive), and pool (Normal/Lunatic). There is no automatic matching logic—players join directly.
 - **Reconnect support:** Multiple connections per team are allowed (e.g., stale tabs/devices may reconnect).
 - **State persistence:** Room state persists across server restarts, unlike the reference project’s ephemeral rooms.
 - **Trust-based:** No anti-cheat; players are trusted to follow rules. The project provides only the game UI; Touhou gameplay is external.
@@ -107,16 +107,16 @@ Patterns reused from the `local_reference` project:
 
 - **Room ID:** Text input (user-defined, e.g. `abc123`).
 - **Team:** Choose BLUE or RED (buttons).
-- **Play:** Submit → `POST /api/lobby/join` with body `{ room: string, team: "red"|"blue" }`.
+- **Play:** Submit → `POST /api/lobby/join` with body `{ room: string, team: "red"|"blue"|"observer", mode: string, pool: "normal"|"lunatic" }`.
 
 ### 6.2 Join Flow
 
 No matching. Join flow:
 
 1. User submits room ID and team.
-2. Client sends `POST /api/lobby/join` with `{ room, team }`.
+2. Client sends `POST /api/lobby/join` with `{ room, team, mode, pool }`.
 3. Server ensures the room exists (creates it if first joiner).
-4. Server responds with `{ ok: true, room, team }`.
+4. Server responds with `{ ok: true, room, team, mode, pool }`.
 5. Client redirects to `/?room={room}&team={team}`.
 
 - **Multiple same-team:** Allowed. For example, two BLUE tabs can both operate BLUE; last write wins. This supports reconnects.
@@ -133,6 +133,7 @@ Per-room state replaces the global state for online mode:
 
 ```python
 class BingoRoomState:
+    pool: str                              # "normal" or "lunatic"
     spellcard_id_map: Dict[Coord, int]      # (r,c) -> spellcard index
     team_cell_state_dict: Dict[Team, CellStateDict]
     team_hp_dict: Dict[Team, Dict[Coord, int]]
@@ -164,15 +165,24 @@ All game endpoints require `?room=` and `?team=` (team identifies the acting cli
 | --------------------- | ------ | ----------- | ----------------- | --------------------------------------------------------- |
 | `/`                   | GET    | `room`, `team` | —               | Serve game if both present; else redirect to `/lobby`     |
 | `/lobby`              | GET    | —           | —                 | Serve lobby page                                          |
-| `/api/lobby/join`     | POST   | —           | `{ room, team }`  | Create/join room, return `{ ok, room, team }`             |
+| `/api/lobby/join`     | POST   | —           | `{ room, team, mode, pool }`  | Create/join room, return `{ ok, room, team, mode, pool }` (`team` may be `observer`)             |
 | `/state`              | GET    | `room`, `team` | —               | Full state payload (room-scoped)                           |
-| `/click`              | POST   | `room`, `team` | `{ r, c }`      | Apply click for `team`; broadcast `state_updated`         |
+| `/click`              | POST   | `room`, `team` | `{ r, c }`      | Apply click for `team`; in exclusive mode cooldown blocks `PENDING -> CHECKED`; broadcast `state_updated`         |
 | `/hp`                 | POST   | `room`, `team` | `{ team, delta }`| Adjust HP for team’s pending cell; broadcast               |
-| `/reset`              | POST   | `room`      | —                 | Reset room state (if allowed); broadcast                   |
+| `/reset`              | POST   | `room`, `team` | —              | Reset room state (if allowed). Observer is forbidden.      |
 | `/events/<room_id>`   | GET    | —           | —                 | SSE stream for room                                       |
 
-- **Switch:** Removed in online mode. Each client is fixed to one team from the lobby.
+- **Switch:** Removed in online mode. Each client is fixed to one role from the lobby.
+- **Observer:** Read-only; cannot click, adjust HP, or reset.
 - **Reset:** Subject to `show_reset_button` (from `defs.py`). Same rule as local mode.
+
+### 8.4 Cooldown (Exclusive Mode)
+
+- Config: `exclusive_mode_cooldown` (seconds) in `defs.py`.
+- Trigger: when a team completes a spellcard (`PENDING -> CHECKED`) in exclusive mode.
+- Effect: team may still select a new PENDING cell, but cannot complete another one until cooldown reaches 0.
+- Cancel behavior: if a team cancels a checked cell (`CHECKED -> UNCHECKED`), cooldown resets immediately to 0.
+- State payload: `/state` includes `cooldown` with remaining seconds for red/blue.
 
 ### 8.3 Broadcast Triggers
 
@@ -190,14 +200,15 @@ After any mutating action (`click`, `hp`, `reset`): `broadcast(room_id, "state_u
 ### 9.2 Game Page (`static/index.html`)
 
 - **URL:** `/?room=X&team=Y`.
-- **Team:** Fixed from URL. “Select” controls show “you” for the client’s team and are disabled.
+- **Team/Role:** Fixed from URL. “Select” controls show “you” for RED/BLUE clients; observer shows guest indicator and remains non-interactive.
 - **API calls:** Append `?room=...&team=...` to all game requests.
 - **SSE:** On load, open `EventSource(/events/{room_id})`; on `state_updated`, call `fetchState()`.
-- **HP/Click:** Include `team` in body or query; server uses it for authorization.
+- **HP/Click:** Include `team` in body or query; server uses it for authorization. Observer requests are rejected with 403.
+- **HUD cooldown:** A `CD` row is displayed under HP. Value is `Ns` during countdown, otherwise `✅`.
 
 ### 9.3 UI Simplification
 
-- Single-team view: Each client sees controls only for its team. Both see the full board state.
+- Single-team view: Each RED/BLUE client sees controls only for its team. Observer sees the full board with all controls disabled.
 - HP controls for the other team are disabled (display-only).
 
 ---
@@ -209,12 +220,13 @@ SpellcardBingo/
 ├── app.py              # Lobby routes, room-scoped routes, SSE
 ├── state.py            # Spellcard data loading; BingoRoomState, get_room, save_room (online) at end
 ├── calc_score.py       # Scoring logic; room-aware variants
-├── defs.py             # Constants (unchanged)
+├── defs.py             # Constants, pool config and per-pool privileged ids
 ├── static/
 │   ├── lobby.html      # Room + team entry
 │   └── index.html      # Game UI with room/team params, SSE, team-scoped UI
 ├── data/
-│   ├── SpellcardData.csv
+│   ├── SpellcardDataNormal.csv
+│   ├── SpellcardDataLunatic.csv
 │   └── rooms/
 │       └── {room_id}/
 │           └── state.json   # Per-room persistence
@@ -230,6 +242,9 @@ JSON structure for `data/rooms/{room_id}/state.json`:
 
 ```json
 {
+  "mode": "shared",
+  "size": 5,
+  "pool": "normal",
   "spellcard_id_map": { "0,0": 42, "0,1": 17, ... },
   "team_cell_state_dict": {
     "red": { "0,0": "unchecked", "0,1": "pending", ... },
@@ -257,5 +272,5 @@ Coord keys use the `"r,c"` format for JSON compatibility.
 ## 13. Open Decisions
 
 - **Reset:** Who can reset? (Any player vs. host only.)
-- **Spectator:** Allow `?room=X` without team for view-only access? (Lower priority.)
+- **Anonymous spectator:** Allow `?room=X` without explicit `team=observer`? (Lower priority.)
 - **Room cleanup:** TTL or manual cleanup for idle rooms to avoid unbounded growth.

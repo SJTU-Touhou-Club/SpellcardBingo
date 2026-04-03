@@ -10,11 +10,11 @@ This repository contains the UI for the Spellcard Bingo game used at the SJTU To
 
 - 落星, 带鸽子 @ SJTU
 	- Project proposal
-	- Spellcard data collection and scoring
+	- Spellcard data collection and scoring for NORMAL pool
 - fAKe @ SJTU
 	- Core code design and implement.
 - Copilot 様 
-	- GPT-5@OpenAI and Gemini 3.0 Pro@Google
+	- GPT-5@OpenAI, Gemini 3.0 Pro@Google, and Cursor
 	- Frontend coding and refinement.
 
 > You're welcome to adapt this project for your Touhou events. Please credit us as “上海交通大学东方社”.
@@ -42,6 +42,7 @@ Two teams compete to gain higher scores, where each team member can challenge a 
 **Game modes:**
 - **Shared (default):** Both teams may challenge and acquire the same spellcard. Cells can be completed independently by each team.
 - **Exclusive:** Each cell can be completed by only one team. Both teams may SELECT (pending) the same cell, but only the first to complete it wins. A team cannot SELECT a cell the opponent has already completed.
+- **Exclusive cooldown:** After a team completes a spellcard in exclusive mode, it must wait for a cooldown before completing the next one (selection is still allowed during cooldown).
 
 Spellcards are classified into different difficulty levels and assigned scores accordingly. Each bingo (row, column, diagonal) grants a bonus (fixed in shared mode; `2×N` per line in exclusive mode).
 
@@ -57,28 +58,29 @@ For a recording example, watch [this video](https://www.bilibili.com/video/BV1gQ
 Requirements:
 - Python 3.10+
 - Install dependencies: `pip install -r requirements.txt`
-- Data file: `data/SpellcardData.csv`
+- Data files: `data/SpellcardDataNormal.csv`, `data/SpellcardDataLunatic.csv`
 
 Run the server:
 
 ```bash
-python app.py [--mode shared|exclusive] [--size N] [--port P]
+python app.py [--mode shared|exclusive] [--size N] [--pool normal|lunatic] [--port P]
 ```
 
 - `--mode`: server default for new rooms (default: `shared`). New rooms can override via the lobby mode selector.
 - `--size`: grid size N (default 5). The board is N×N. Serves as default for new rooms.
+- `--pool`: default spellcard pool for new rooms (default: `normal`). New rooms can override via the lobby pool selector.
 - `--port`: port to listen on (default: 5000).
 
 Open http://localhost:5000 in a browser (or the port you specified).
 
 ### Online play
 
-Two players (or parties) play over the internet, each representing a team (RED or BLUE):
+Two players (or parties) play over the internet, each representing a team (RED or BLUE). You can also join as an observer:
 
 1. Each player opens the app and is directed to the **lobby**.
-2. Both enter the same **room ID** (e.g. `abc123`), select **mode** (Shared/Exclusive), and choose their **team** (RED or BLUE).
-3. Click **Join** to join the game. The first player to join a room sets the mode; all players in that room share the same mode.
-4. Each client is fixed to its team; cell clicks and HP adjustments affect that team only.
+2. Both enter the same **room ID** (e.g. `abc123`), select **mode** (Shared/Exclusive), **pool** (Normal/Lunatic), and choose their **team** (RED/BLUE/Observer).
+3. Click **Join** to join the game. The first player to join a room sets mode/pool; all players in that room share the same mode/pool.
+4. Each client is fixed to its role; RED/BLUE can interact with their team, and **Observer** is read-only.
 5. State is synced in real time via Server-Sent Events. Room state persists across server restarts.
 
 See `docs/online-adaptation.md` for the full design.
@@ -87,8 +89,10 @@ See `docs/online-adaptation.md` for the full design.
 
 - Left and right: team titles “RED” and “BLUE”.
 - Center row labels: “score” and “hp”.
+- In exclusive mode, HUD also shows `CD` (cooldown): remaining seconds or `✅` when ready.
 - Under each team title you’ll see the team’s total score and its HP controls.
 - Your team is indicated by “you” under the team label; controls for the other team are display-only.
+- Observer view shows a dedicated observer indicator and marks both team selectors as guest.
 
 ### Clicking cells (core logic)
 
@@ -112,6 +116,8 @@ For your team, cell clicks cycle through these states:
 
 Click “Reset” to reinitialize everything.
 
+- Observer cannot reset/click/adjust HP.
+
 ### Scoring
 
 - Per‑cell scores come from the data file and are shown in the bottom‑right of each cell.
@@ -121,7 +127,8 @@ Click “Reset” to reinitialize everything.
 
 - Room state is saved to `data/rooms/{room_id}/state.json` after each mutation (click, hp, reset).
 - State persists across server restarts; rooms are loaded on first access.
-- Each room stores its game mode (set by the first joiner) and grid size. Mode is per-room; different rooms can have different modes. If you start the server with a different `--size`, existing rooms created under the old grid size are incompatible. The app will prompt you to use a new Room ID; existing room data is never overwritten.
+- Each room stores its game mode/pool (set by the first joiner) and grid size. Mode/pool are per-room; different rooms can use different combinations.
+- If you start the server with a different default `--size` or try to join a room with a different selected pool than the room already uses, the room is treated as incompatible. The app will prompt you to use a new Room ID; existing room data is never overwritten.
 
 ---
 
@@ -131,19 +138,22 @@ Click “Reset” to reinitialize everything.
 
 1. `--mode`: default game mode for new rooms (`shared` or `exclusive`). Default: `shared`. Each room can have its own mode (set in the lobby when the room is first created).
 2. `--size`: grid size N. Default: `5`. Serves as default for new rooms.
-3. `--port`: listening port. Default: `5000`.
+3. `--pool`: default spellcard pool key for new rooms (`normal` or `lunatic`). Default: `normal`.
+4. `--port`: listening port. Default: `5000`.
 
 > defs.py
 
 1. `max_hp`: per spellcard+team HP
-2. `privileged_spellcard_ids`: special spellcards that are guaranteed to sample.
-3. `show_reset_btn`: whether to show the Reset button on the frontend (hide to avoid accidental clicks).
+2. `SPELLCARD_POOLS`: spellcard pool key -> CSV path mapping.
+3. `privileged_spellcard_ids`: per-pool special spellcards guaranteed to sample.
+4. `exclusive_mode_cooldown`: cooldown seconds after completion in exclusive mode.
+5. `show_reset_button`: whether to show the Reset button on the frontend (hide to avoid accidental clicks).
 
 > calc_score.py
 
 1. `def line_score(line_values: List[int], bingo_bonus_val: int = None) -> int`: how bingo bonus is calculated. Online rooms use `2×N` in exclusive mode.
 
-See `docs/exclusive-mode.md` for exclusive mode design details.
+See `docs/exclusive-mode.md` and `docs/exclusive-cooldown.md` for exclusive mode and cooldown details.
 
 ---
 

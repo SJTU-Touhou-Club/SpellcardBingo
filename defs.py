@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Dict, Tuple, Union
+from typing import Dict, List, Tuple, Union
 
 N = 6
 
@@ -33,16 +33,27 @@ CellStateDict = Dict[Coord, CellState]  # Mapping from (row, col) to CellState
 # Global Constant
 max_hp = 5 # initial challenge times for each spell card
 
-# Always-Sampled Spellcards
-privileged_spellcard_ids = [
-  364 # 弑神炮麻将山
-] # global ids
+# Spellcard CSV pools (key -> path). Online rooms pick one pool per room.
+SPELLCARD_POOLS: Dict[str, str] = {
+  "normal": "data/SpellcardDataNormal.csv",
+  "lunatic": "data/SpellcardDataLunatic.csv",
+}
+DEFAULT_SPELLCARD_POOL = "normal"
+
+# Per-pool GlobalIDs for always-sampled spellcards (empty list skips injection for that pool)
+privileged_spellcard_ids: Dict[str, List[int]] = {
+  "normal": [364],  # 弑神炮麻将山
+  "lunatic": [],
+}
+
+# Legacy single path: default pool (local checkpoint / load_spellcard_data default)
+target_spellcard_data_path = SPELLCARD_POOLS[DEFAULT_SPELLCARD_POOL]
 
 # Bingo Scoring Rules
 bingo_bonus = 10
+# Cooldown (seconds) after completion in exclusive mode
+exclusive_mode_cooldown = 30
 
-# File Path
-target_spellcard_data_path = "data/SpellcardData.csv"
 target_checkpoint_path = "data/checkpoint-{id}.pickle"
 
 # Show Reset Button
