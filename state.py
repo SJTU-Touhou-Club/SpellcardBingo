@@ -11,6 +11,7 @@ from defs import (
   max_hp,
   privileged_spellcard_ids,
   exclusive_mode_cooldown,
+  max_banned_works_per_player,
 )
 import pandas as pd
 import pickle
@@ -141,6 +142,7 @@ def _parse_spellcard_csv(path: str) -> pd.DataFrame:
     print("......")
     print("================================================================")
     df = df.dropna(subset=["Score"])
+  df = df.reset_index(drop=True)
 
   df["Comment"] = df["Comment"].fillna("")
   df["LocalID"] = df["LocalID"].fillna(0)
@@ -168,6 +170,19 @@ def get_spellcard_df(pool: str) -> pd.DataFrame:
   if pool not in spellcard_data_by_pool:
     raise KeyError(f"unknown spellcard pool {pool!r}")
   return spellcard_data_by_pool[pool]
+
+
+def get_pool_series_ids(pool: str) -> List[str]:
+  df = get_spellcard_df(pool)
+  vals: List[str] = []
+  seen = set()
+  for raw in df["SeriesID"].tolist():
+    key = str(raw or "").strip()
+    if not key or key in seen:
+      continue
+    seen.add(key)
+    vals.append(key)
+  return vals
 
 
 def load_spellcard_data():
@@ -317,6 +332,12 @@ class RoomIncompatibleError(Exception):
         self.room_pool = room_pool
 
 
+class RoomBanError(Exception):
+    """Raised when requested room bans are invalid or leave too few eligible cards."""
+
+    pass
+
+
 def _room_coord_key(xy: Coord) -> str:
     return f"{xy[0]},{xy[1]}"
 
@@ -350,6 +371,20 @@ def _room_deserialize_spellcard_map(data: Dict[str, int]) -> Dict[Coord, int]:
     return {_room_parse_coord(k): int(v) for k, v in data.items()}
 
 
+def _normalize_series_ids(items) -> List[str]:
+    if not isinstance(items, list):
+        return []
+    out: List[str] = []
+    seen = set()
+    for raw in items:
+        val = str(raw or "").strip()
+        if not val or val in seen:
+            continue
+        seen.add(val)
+        out.append(val)
+    return out
+
+
 class BingoRoomState:
     """Per-room game state: spellcard grid, cell states, HP (online mode)."""
 
@@ -372,6 +407,14 @@ class BingoRoomState:
         self.team_cell_state_dict: Dict[Team, CellStateDict] = {}
         self.team_hp_dict: Dict[Team, Dict[Coord, int]] = {}
         self.spellcard_score_map: Dict[Coord, int] = {}
+        self.player_bans: Dict[Team, List[str]] = {
+            Team.RED: [],
+            Team.BLUE: [],
+        }
+        self.joined_teams: Dict[Team, bool] = {
+            Team.RED: False,
+            Team.BLUE: False,
+        }
         self.team_cooldown_until: Dict[Team, float] = {
             Team.RED: 0.0,
             Team.BLUE: 0.0,
@@ -390,28 +433,79 @@ class BingoRoomState:
                 (i, j): max_hp for i in range(n) for j in range(n)
             }
             self.team_cooldown_until[team] = 0.0
-        self._sample_spellcard()
-        self._init_spellcard_score_map()
+        self.spellcard_id_map = {}
+        self.spellcard_score_map = {}
 
-    def _sample_spellcard(self) -> None:
+    def get_available_series_ids(self) -> List[str]:
+        df = self._df()
+        vals = []
+        seen = set()
+        for raw in df["SeriesID"].tolist():
+            key = str(raw or "").strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            vals.append(key)
+        return vals
+
+    def eligible_spellcard_count(self, banned_series: Optional[List[str]] = None) -> int:
+        banned = set(banned_series if banned_series is not None else self.get_banned_series_union())
+        df = self._df()
+        if not banned:
+            return int(len(df))
+        return int((~df["SeriesID"].astype(str).isin(banned)).sum())
+
+    def get_banned_series_union(self) -> List[str]:
+        seen = set()
+        out: List[str] = []
+        for team in [Team.RED, Team.BLUE]:
+            for series_id in self.player_bans.get(team, []):
+                if series_id in seen:
+                    continue
+                seen.add(series_id)
+                out.append(series_id)
+        return out
+
+    def is_board_ready(self) -> bool:
+        return len(self.spellcard_id_map) == self.size * self.size
+
+    def is_ready(self) -> bool:
+        return self.joined_teams.get(Team.RED, False) and self.joined_teams.get(Team.BLUE, False) and self.is_board_ready()
+
+    def _eligible_indices(self, banned_series: Optional[List[str]] = None) -> List[int]:
+        df = self._df()
+        banned = set(banned_series if banned_series is not None else self.get_banned_series_union())
+        if not banned:
+            return df.index.tolist()
+        mask = ~df["SeriesID"].astype(str).isin(banned)
+        return df.index[mask].tolist()
+
+    def _sample_spellcard(self, banned_series: Optional[List[str]] = None) -> None:
         import random
         rng = random.Random(self.seed)
-        total = len(self._df())
         n = self.size
-        sampled = rng.sample(range(total), n * n)
-        sampled = self._inject_privileged(sampled)
+        eligible_indices = self._eligible_indices(banned_series)
+        if len(eligible_indices) < n * n:
+            raise RoomBanError(
+                f"Not enough spellcards remain after bans: need {n * n}, have {len(eligible_indices)}."
+            )
+        sampled = rng.sample(eligible_indices, n * n)
+        sampled = self._inject_privileged(sampled, banned_series=banned_series)
         self.spellcard_id_map = {
             (i, j): sampled[i * n + j] for i in range(n) for j in range(n)
         }
 
-    def _inject_privileged(self, sampled: List[int]) -> List[int]:
+    def _inject_privileged(self, sampled: List[int], banned_series: Optional[List[str]] = None) -> List[int]:
         import random
         rng = random.Random(self.seed + 1)
         n = self.size
         pool_privileged_ids = privileged_spellcard_ids.get(self.pool, [])
+        if not pool_privileged_ids:
+            return sampled
         positions = rng.sample(range(n * n), len(pool_privileged_ids))
         to_evict = [sampled[pos] for pos in positions]
         df = self._df()
+        banned = set(banned_series if banned_series is not None else self.get_banned_series_union())
         for pos, sc_global_id in zip(positions, pool_privileged_ids):
             sc_ids = df.index[
                 df["GlobalID"] == sc_global_id
@@ -421,6 +515,9 @@ class BingoRoomState:
                     f"privileged spellcard {sc_global_id} not found or not unique"
                 )
             sc_id = sc_ids[0]
+            series_id = str(df.loc[sc_id, "SeriesID"])
+            if series_id in banned:
+                continue
             if sc_id not in sampled or sc_id in to_evict:
                 sampled[pos] = sc_id
         return sampled
@@ -428,15 +525,63 @@ class BingoRoomState:
     def _init_spellcard_score_map(self) -> None:
         df = self._df()
         self.spellcard_score_map = {
-            xy: int(df.iloc[sc_id]["Score"])
+            xy: int(df.loc[sc_id]["Score"])
             for xy, sc_id in self.spellcard_id_map.items()
         }
+
+    def ensure_board_ready(self) -> None:
+        if self.is_board_ready():
+            return
+        self._sample_spellcard(self.get_banned_series_union())
+        self._init_spellcard_score_map()
+
+    def confirm_team(self, team: Team, banned_series: List[str]) -> None:
+        normalized = _normalize_series_ids(banned_series)
+        if len(normalized) > max_banned_works_per_player:
+            raise RoomBanError(
+                f"At most {max_banned_works_per_player} banned works are allowed per player."
+            )
+        allowed_series = set(self.get_available_series_ids())
+        unknown = [sid for sid in normalized if sid not in allowed_series]
+        if unknown:
+            raise RoomBanError(f"Unknown work(s): {', '.join(unknown)}")
+
+        # Validate against the merged room ban set before confirming this player.
+        next_bans = {
+            Team.RED: list(self.player_bans.get(Team.RED, [])),
+            Team.BLUE: list(self.player_bans.get(Team.BLUE, [])),
+        }
+        next_bans[team] = normalized
+        merged = []
+        seen = set()
+        for series_id in next_bans[Team.RED] + next_bans[Team.BLUE]:
+            if series_id in seen:
+                continue
+            seen.add(series_id)
+            merged.append(series_id)
+        if self.eligible_spellcard_count(merged) < self.size * self.size:
+            raise RoomBanError(
+                "These bans leave too few spellcards to generate the board. Please remove some banned works."
+            )
+
+        self.player_bans[team] = normalized
+        self.joined_teams[team] = True
+        if self.joined_teams[Team.RED] and self.joined_teams[Team.BLUE]:
+            self.ensure_board_ready()
 
     def to_dict(self) -> dict:
         return {
             "mode": self.mode,
             "size": self.size,
             "pool": self.pool,
+            "player_bans": {
+                t.value: list(self.player_bans.get(t, []))
+                for t in [Team.RED, Team.BLUE]
+            },
+            "joined_teams": {
+                t.value: bool(self.joined_teams.get(t, False))
+                for t in [Team.RED, Team.BLUE]
+            },
             "spellcard_id_map": _room_serialize_spellcard_map(
                 self.spellcard_id_map
             ),
@@ -492,7 +637,7 @@ class BingoRoomState:
         sc_id = self.spellcard_id_map.get(xy)
         if sc_id is None:
             return {"name": "", "score": 0, "index": "", "comment": ""}
-        rec = self._df().iloc[int(sc_id)]
+        rec = self._df().loc[int(sc_id)]
         return {
             "name": str(rec.get("SpellcardName", "")),
             "score": int(rec.get("Score", 0)),
@@ -502,6 +647,8 @@ class BingoRoomState:
 
     def reset(self) -> None:
         self.init_fresh()
+        if self.joined_teams[Team.RED] and self.joined_teams[Team.BLUE]:
+            self.ensure_board_ready()
 
     def get_cooldown_remaining(self, team: Team, now: Optional[float] = None) -> int:
         if self.mode != "exclusive":
@@ -538,6 +685,16 @@ class BingoRoomState:
             else:
                 size = 5
         obj = cls(room_id, seed, mode=mode, size=int(size), pool=pool)
+        raw_bans = data.get("player_bans", {}) or {}
+        obj.player_bans = {
+            Team.RED: _normalize_series_ids(raw_bans.get(Team.RED.value, [])),
+            Team.BLUE: _normalize_series_ids(raw_bans.get(Team.BLUE.value, [])),
+        }
+        raw_joined = data.get("joined_teams", {}) or {}
+        obj.joined_teams = {
+            Team.RED: bool(raw_joined.get(Team.RED.value, False)),
+            Team.BLUE: bool(raw_joined.get(Team.BLUE.value, False)),
+        }
         obj.spellcard_id_map = _room_deserialize_spellcard_map(
             data.get("spellcard_id_map", {})
         )
@@ -554,7 +711,14 @@ class BingoRoomState:
             Team.RED: float(raw_cd.get(Team.RED.value, 0.0) or 0.0),
             Team.BLUE: float(raw_cd.get(Team.BLUE.value, 0.0) or 0.0),
         }
-        obj._init_spellcard_score_map()
+        if obj.spellcard_id_map:
+            # Legacy rooms with an already-sampled board should remain playable.
+            if not raw_joined:
+                obj.joined_teams = {
+                    Team.RED: True,
+                    Team.BLUE: True,
+                }
+            obj._init_spellcard_score_map()
         return obj
 
 

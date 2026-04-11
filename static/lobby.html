@@ -11,33 +11,43 @@
       align-items: center;
       justify-content: center;
       min-height: 100vh;
+      margin: 0;
       background: #f5f5f5;
       background-image: url('media/warabe-asobi.png');
       background-size: cover;
       background-position: center;
       background-repeat: no-repeat;
+      padding: 20px;
+      box-sizing: border-box;
     }
     .card {
-      background: rgba(255, 255, 255, 0.8);
+      background: rgba(255, 255, 255, 0.9);
       padding: 24px;
       border-radius: 12px;
       box-shadow: 0 8px 30px rgba(0,0,0,0.12);
-      width: min(400px, 92vw);
+      width: min(720px, 96vw);
       display: flex;
       flex-direction: column;
       align-items: stretch;
+      gap: 14px;
     }
-    h1 { margin: 0 0 20px; font-size: 22px; }
-    .row { display: flex; gap: 10px; margin: 14px 0; align-items: center; }
+    h1 { margin: 0; font-size: 24px; }
+    .subtle { color: #666; font-size: 14px; line-height: 1.45; }
+    .row { display: flex; gap: 10px; align-items: center; }
     .row label { min-width: 80px; font-weight: 700; }
-    input[type="text"] { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
-    .settings-block { width: 100%; margin: 10px 0 6px; align-self: stretch; }
+    input[type="text"] {
+      flex: 1;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+    .settings-block { display: grid; gap: 10px; }
     .setting-row {
       display: grid;
-      grid-template-columns: 44px 1fr;
+      grid-template-columns: 52px 1fr;
       column-gap: 8px;
       align-items: baseline;
-      margin: 6px 0;
     }
     .setting-label {
       font-size: 11px;
@@ -46,33 +56,43 @@
       text-transform: uppercase;
       letter-spacing: 0.04em;
       line-height: 1.2;
-      padding-top: 2px;
+      padding-top: 4px;
     }
-    .setting-buttons { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .setting-buttons, .team-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .seg-btn, .team-btn, .work-chip {
+      background: #fff;
+      cursor: pointer;
+      transition: 0.15s;
+    }
     .seg-btn {
-      padding: 4px 11px;
+      padding: 6px 12px;
       border-radius: 999px;
       border: 1px solid #666;
       font-size: 12px;
       font-weight: 600;
-      background: #fff;
-      cursor: pointer;
-      transition: 0.15s;
       line-height: 1.2;
     }
     .seg-btn:hover { border-color: #333; background: #f7f7f7; }
     .seg-btn.selected { background: #333; color: #fff; border-color: #333; }
-    .team-row { display: flex; gap: 12px; align-items: center; margin: 14px 0; }
-    .team-row label { margin-right: 8px; font-weight: 700; }
+    .team-title {
+      min-width: 52px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
     .team-btn {
       padding: 10px 20px;
       border-radius: 999px;
       border: 2px solid #ddd;
       font-size: 14px;
       font-weight: 700;
-      background: #fff;
-      cursor: pointer;
-      transition: 0.15s;
     }
     .team-btn:hover { border-color: #bbb; background: #f9f9f9; }
     .team-btn.red { border-color: #EE5755; color: #EE5755; }
@@ -81,26 +101,120 @@
     .team-btn.blue:hover, .team-btn.blue.selected { background: #5557EE; color: #fff; }
     .team-btn.observer { border-color: #666; color: #444; }
     .team-btn.observer:hover, .team-btn.observer.selected { background: #666; color: #fff; }
-    .btn { padding: 10px 20px; border-radius: 10px; border: 2px solid #ddd; background: #fff; cursor: pointer; font-weight: 700; }
+    .works-block {
+      border: 1px solid rgba(0,0,0,0.08);
+      border-radius: 12px;
+      background: rgba(255,255,255,0.75);
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+    }
+    .works-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .works-title {
+      font-size: 14px;
+      font-weight: 800;
+    }
+    .works-meta {
+      font-size: 12px;
+      color: #555;
+    }
+    .works-meta.error {
+      color: #b42318;
+      font-weight: 700;
+    }
+    .works-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-height: 44px;
+    }
+    .work-chip {
+      border: 1px solid #bbb;
+      border-radius: 999px;
+      padding: 7px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.2;
+    }
+    .work-chip:hover { border-color: #333; }
+    .work-chip.selected {
+      background: #222;
+      border-color: #222;
+      color: #fff;
+    }
+    .work-chip:disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
+    }
+    .btn {
+      padding: 10px 20px;
+      border-radius: 10px;
+      border: 2px solid #ddd;
+      background: #fff;
+      cursor: pointer;
+      font-weight: 700;
+    }
     .btn:hover { background: #f0f0f0; border-color: #bbb; }
-    .primary { color: #fff; margin-top: 8px; transition: background 0.15s, border-color 0.15s; }
+    .btn:disabled { opacity: 0.65; cursor: wait; }
+    .primary {
+      color: #fff;
+      transition: background 0.15s, border-color 0.15s;
+    }
     .primary.team-red { background: #EE5755; border-color: #EE5755; }
     .primary.team-red:hover { background: #dd4644; border-color: #dd4644; }
     .primary.team-blue { background: #5557EE; border-color: #5557EE; }
     .primary.team-blue:hover { background: #4445dd; border-color: #4445dd; }
-    .game-info { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 20px; }
-    .game-info .badge { padding: 4px 10px; border-radius: 999px; background: rgba(30, 45, 90, 0.92); color: #e8ecf8; font-weight: 600; box-shadow: 0 1px 4px rgba(0,0,0,0.2); }
-    .game-info .size-tag { padding: 4px 10px; border-radius: 999px; background: rgba(30, 45, 90, 0.92); color: #e8ecf8; box-shadow: 0 1px 4px rgba(0,0,0,0.2); }
+    .primary.team-observer { background: #666; border-color: #666; }
+    .primary.team-observer:hover { background: #555; border-color: #555; }
+    .game-info {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      flex-wrap: wrap;
+    }
+    .game-info .badge, .game-info .size-tag {
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(30, 45, 90, 0.92);
+      color: #e8ecf8;
+      font-weight: 600;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+    }
+    #join-note {
+      min-height: 1.4em;
+      font-size: 13px;
+      color: #555;
+    }
+    #join-note.error {
+      color: #b42318;
+      font-weight: 700;
+    }
+    .actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Spellcard Bingo | Lobby</h1>
     <div id="game-info" class="game-info"></div>
+
     <div class="row">
       <label for="room">Room ID</label>
       <input id="room" type="text" placeholder="e.g. abc123" />
     </div>
+
     <div class="settings-block">
       <div class="setting-row">
         <span class="setting-label">Mode</span>
@@ -117,19 +231,35 @@
         </div>
       </div>
     </div>
+
     <div class="team-row">
-      <label>Team</label>
+      <span class="team-title">Team</span>
       <button id="team-red" class="team-btn red" type="button">RED</button>
       <button id="team-blue" class="team-btn blue selected" type="button">BLUE</button>
       <button id="team-observer" class="team-btn observer" type="button">Observer</button>
     </div>
-    <div style="display: flex; justify-content: flex-end;">
+
+    <div class="works-block">
+      <div class="works-header">
+        <div class="works-title">Ban Works</div>
+        <div id="works-meta" class="works-meta"></div>
+      </div>
+      <div id="works-help" class="subtle"></div>
+      <div id="works-grid" class="works-grid"></div>
+    </div>
+
+    <div class="actions">
+      <div id="join-note"></div>
       <button id="go" class="btn primary team-blue">Join</button>
     </div>
   </div>
   <script>
     const roomInput = document.getElementById('room');
     const goBtn = document.getElementById('go');
+    const joinNoteEl = document.getElementById('join-note');
+    const worksGridEl = document.getElementById('works-grid');
+    const worksMetaEl = document.getElementById('works-meta');
+    const worksHelpEl = document.getElementById('works-help');
     const teamRedBtn = document.getElementById('team-red');
     const teamBlueBtn = document.getElementById('team-blue');
     const teamObserverBtn = document.getElementById('team-observer');
@@ -141,43 +271,131 @@
     let selectedTeam = 'blue';
     let selectedMode = 'shared';
     let selectedPool = 'normal';
+    let maxBannedWorks = 2;
+    let worksByPool = { normal: [], lunatic: [] };
+    let selectedWorks = [];
+
+    function setJoinNote(message, isError = false) {
+      joinNoteEl.textContent = message || '';
+      joinNoteEl.classList.toggle('error', !!isError);
+    }
+
+    function setWorksMessage(message, isError = false) {
+      worksMetaEl.textContent = message;
+      worksMetaEl.classList.toggle('error', !!isError);
+    }
+
+    function selectedWorksForPool() {
+      const allowed = new Set(worksByPool[selectedPool] || []);
+      selectedWorks = selectedWorks.filter((work) => allowed.has(work));
+      return selectedWorks;
+    }
+
+    function renderWorks() {
+      const works = worksByPool[selectedPool] || [];
+      const chosen = selectedWorksForPool();
+      worksGridEl.innerHTML = '';
+      const observerMode = selectedTeam === 'observer';
+      setWorksMessage(`up to ${chosen.length}/${maxBannedWorks} selected`);
+      worksHelpEl.textContent = '';
+
+      if (!works.length) {
+        const empty = document.createElement('div');
+        empty.className = 'subtle';
+        empty.textContent = 'No works were loaded for this pool.';
+        worksGridEl.appendChild(empty);
+        return;
+      }
+
+      for (const work of works) {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'work-chip';
+        chip.textContent = work;
+        const isSelected = chosen.includes(work);
+        if (isSelected) chip.classList.add('selected');
+        const hitLimit = !isSelected && chosen.length >= maxBannedWorks;
+        chip.disabled = observerMode || hitLimit;
+        chip.addEventListener('click', () => {
+          toggleWork(work);
+        });
+        worksGridEl.appendChild(chip);
+      }
+    }
+
+    function toggleWork(work) {
+      const chosen = selectedWorksForPool();
+      const idx = chosen.indexOf(work);
+      if (idx >= 0) {
+        chosen.splice(idx, 1);
+        setJoinNote('');
+      } else if (chosen.length < maxBannedWorks) {
+        chosen.push(work);
+        setJoinNote('');
+      } else {
+        setWorksMessage(`up to ${chosen.length}/${maxBannedWorks} selected`, true);
+        return;
+      }
+      selectedWorks = chosen;
+      renderWorks();
+    }
 
     function updatePlayButton() {
-      goBtn.classList.remove('team-red', 'team-blue');
+      goBtn.classList.remove('team-red', 'team-blue', 'team-observer');
       if (selectedTeam === 'red') {
         goBtn.classList.add('team-red');
       } else if (selectedTeam === 'blue') {
         goBtn.classList.add('team-blue');
+      } else {
+        goBtn.classList.add('team-observer');
       }
-      goBtn.textContent = selectedTeam === 'observer' ? 'Observe' : 'Join';
+      goBtn.textContent = 'Join';
     }
 
     function updateTeamButtons() {
       teamRedBtn.classList.toggle('selected', selectedTeam === 'red');
       teamBlueBtn.classList.toggle('selected', selectedTeam === 'blue');
       teamObserverBtn.classList.toggle('selected', selectedTeam === 'observer');
+      renderWorks();
+    }
+
+    function updateModeButtons() {
+      modeSharedBtn.classList.toggle('selected', selectedMode === 'shared');
+      modeExclusiveBtn.classList.toggle('selected', selectedMode === 'exclusive');
+    }
+
+    function updatePoolButtons() {
+      poolNormalBtn.classList.toggle('selected', selectedPool === 'normal');
+      poolLunaticBtn.classList.toggle('selected', selectedPool === 'lunatic');
+      renderWorks();
+    }
+
+    function post(url, body) {
+      return fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then((r) => r.json());
     }
 
     teamRedBtn.addEventListener('click', () => {
       selectedTeam = 'red';
       updateTeamButtons();
       updatePlayButton();
+      setJoinNote('');
     });
     teamBlueBtn.addEventListener('click', () => {
       selectedTeam = 'blue';
       updateTeamButtons();
       updatePlayButton();
+      setJoinNote('');
     });
     teamObserverBtn.addEventListener('click', () => {
       selectedTeam = 'observer';
       updateTeamButtons();
       updatePlayButton();
+      setJoinNote('');
     });
-
-    function updateModeButtons() {
-      modeSharedBtn.classList.toggle('selected', selectedMode === 'shared');
-      modeExclusiveBtn.classList.toggle('selected', selectedMode === 'exclusive');
-    }
 
     modeSharedBtn.addEventListener('click', () => {
       selectedMode = 'shared';
@@ -187,54 +405,50 @@
       selectedMode = 'exclusive';
       updateModeButtons();
     });
-
-    function updatePoolButtons() {
-      poolNormalBtn.classList.toggle('selected', selectedPool === 'normal');
-      poolLunaticBtn.classList.toggle('selected', selectedPool === 'lunatic');
-    }
-
     poolNormalBtn.addEventListener('click', () => {
       selectedPool = 'normal';
       updatePoolButtons();
+      setJoinNote('');
     });
     poolLunaticBtn.addEventListener('click', () => {
       selectedPool = 'lunatic';
       updatePoolButtons();
+      setJoinNote('');
     });
-
-    function post(url, body) {
-      return fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      }).then(r => r.json());
-    }
 
     goBtn.addEventListener('click', async () => {
       const room = (roomInput.value || '').trim();
       if (!room) {
-        alert('Please enter a room ID.');
+        setJoinNote('Please enter a room ID.', true);
+        return;
+      }
+      selectedWorksForPool();
+      if (selectedTeam !== 'observer' && selectedWorks.length > maxBannedWorks) {
+        setJoinNote(`You can ban at most ${maxBannedWorks} works.`, true);
         return;
       }
       goBtn.disabled = true;
+        setJoinNote(selectedTeam === 'observer' ? 'Joining room as observer...' : 'Joining room...');
       const res = await post('/api/lobby/join', {
         room,
         team: selectedTeam,
         mode: selectedMode,
         pool: selectedPool,
+        banned_series: selectedTeam === 'observer' ? [] : selectedWorks,
       });
       if (res.incompatible) {
         goBtn.disabled = false;
-        alert(res.message || 'This room was created with different settings. Please use a new Room ID.');
+        setJoinNote(res.message || 'This room was created with different settings. Please use a new Room ID.', true);
         return;
       }
       if (res.error) {
         goBtn.disabled = false;
-        alert(res.error);
+        setJoinNote(res.error, true);
         return;
       }
       if (!res.ok) {
         goBtn.disabled = false;
+        setJoinNote('Failed to join room.', true);
         return;
       }
       window.location.href = `/?room=${encodeURIComponent(res.room)}&team=${encodeURIComponent(res.team)}`;
@@ -242,21 +456,26 @@
 
     (async () => {
       try {
-        const cfg = await fetch('/api/config').then(r => r.json());
+        const cfg = await fetch('/api/config').then((r) => r.json());
         const mode = cfg.mode || 'shared';
         const size = cfg.size || 5;
         const pool = cfg.pool || 'normal';
         selectedMode = mode === 'exclusive' ? 'exclusive' : 'shared';
         selectedPool = pool === 'lunatic' ? 'lunatic' : 'normal';
+        maxBannedWorks = Math.max(0, Number(cfg.max_banned_works_per_player || 2));
+        worksByPool = cfg.works_by_pool || worksByPool;
         updateTeamButtons();
         updatePlayButton();
         updateModeButtons();
         updatePoolButtons();
         const el = document.getElementById('game-info');
         if (el) {
-          el.innerHTML = `<span class="badge">Default: ${mode === 'exclusive' ? 'Exclusive' : 'Shared'} / ${selectedPool === 'lunatic' ? 'Lunatic' : 'Normal'}</span><span class="size-tag">${size}×${size} grid</span>`;
+          el.innerHTML = `<span class="badge">Default: ${mode === 'exclusive' ? 'Exclusive' : 'Shared'} / ${selectedPool === 'lunatic' ? 'Lunatic' : 'Normal'}</span><span class="size-tag">${size}×${size} grid</span><span class="size-tag">up to ${maxBannedWorks} bans</span>`;
         }
-      } catch (_) {}
+        renderWorks();
+      } catch (_) {
+        setJoinNote('Failed to load lobby configuration.', true);
+      }
     })();
   </script>
 </body>

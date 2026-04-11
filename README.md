@@ -78,12 +78,14 @@ Open http://localhost:5000 in a browser (or the port you specified).
 Two players (or parties) play over the internet, each representing a team (RED or BLUE). You can also join as an observer:
 
 1. Each player opens the app and is directed to the **lobby**.
-2. Both enter the same **room ID** (e.g. `abc123`), select **mode** (Shared/Exclusive), **pool** (Normal/Lunatic), and choose their **team** (RED/BLUE/Observer).
-3. Click **Join** to join the game. The first player to join a room sets mode/pool; all players in that room share the same mode/pool.
-4. Each client is fixed to its role; RED/BLUE can interact with their team, and **Observer** is read-only.
-5. State is synced in real time via Server-Sent Events. Room state persists across server restarts.
+2. Both enter the same **room ID** (e.g. `abc123`), select **mode** (Shared/Exclusive), **pool** (Normal/Lunatic), choose their **team** (RED/BLUE/Observer), and optionally ban up to the configured number of works (`SeriesID`s).
+3. Click **Join**. The first player to confirm a room sets mode/pool and then waits on a hold page until the other player confirms.
+4. The final room ban list is the **union** of red and blue banned works. The bingo board is generated only after both red and blue are present.
+5. Once both players are ready, clients show a short 5-second countdown before the room becomes interactive.
+6. Each client is fixed to its role; RED/BLUE can interact with their team after the room becomes ready, and **Observer** is read-only.
+7. State is synced in real time via Server-Sent Events. Room state persists across server restarts, including waiting rooms that have not produced a board yet.
 
-See `docs/online-adaptation.md` for the full design.
+See `docs/online-adaptation.md` for the original online architecture and `docs/ban-pick-room-flow.md` for the ban-pick pregame design.
 
 ### Top HUD UI
 
@@ -125,9 +127,9 @@ Click “Reset” to reinitialize everything.
 
 ### Persistence
 
-- Room state is saved to `data/rooms/{room_id}/state.json` after each mutation (click, hp, reset).
+- Room state is saved to `data/rooms/{room_id}/state.json` after each mutation and after each confirmed pregame join.
 - State persists across server restarts; rooms are loaded on first access.
-- Each room stores its game mode/pool (set by the first joiner) and grid size. Mode/pool are per-room; different rooms can use different combinations.
+- Each room stores its game mode/pool (set by the first joiner), grid size, confirmed bans, and joined-team status. Mode/pool are per-room; different rooms can use different combinations.
 - If you start the server with a different default `--size` or try to join a room with a different selected pool than the room already uses, the room is treated as incompatible. The app will prompt you to use a new Room ID; existing room data is never overwritten.
 
 ---
@@ -148,6 +150,7 @@ Click “Reset” to reinitialize everything.
 3. `privileged_spellcard_ids`: per-pool special spellcards guaranteed to sample.
 4. `exclusive_mode_cooldown`: cooldown seconds after completion in exclusive mode.
 5. `show_reset_button`: whether to show the Reset button on the frontend (hide to avoid accidental clicks).
+6. `max_banned_works_per_player`: how many works each side may ban during the pregame room flow.
 
 > calc_score.py
 

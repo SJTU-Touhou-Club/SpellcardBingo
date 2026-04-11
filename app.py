@@ -27,6 +27,7 @@ from defs import (
     show_reset_button,
     SPELLCARD_POOLS,
     DEFAULT_SPELLCARD_POOL,
+    max_banned_works_per_player,
 )
 import state as S
 import calc_score as CS
@@ -105,6 +106,11 @@ def _cells_payload(room: S.BingoRoomState) -> Dict[str, List[List[str]]]:
 
 
 def _scores_payload(room: S.BingoRoomState) -> Dict[str, int]:
+    if not room.is_board_ready():
+        return {
+            Team.RED.value: 0,
+            Team.BLUE.value: 0,
+        }
     return {
         Team.RED.value: int(CS.calc_total_score_for_room(Team.RED, room)),
         Team.BLUE.value: int(CS.calc_total_score_for_room(Team.BLUE, room)),
@@ -112,6 +118,12 @@ def _scores_payload(room: S.BingoRoomState) -> Dict[str, int]:
 
 
 def _pending_payload(room: S.BingoRoomState) -> Dict:
+    if not room.is_board_ready():
+        return {
+            "red": {"xy": None, "hp": None},
+            "blue": {"xy": None, "hp": None},
+            "max_hp": int(max_hp),
+        }
     red_xy = room.get_pending_coord(Team.RED)
     blue_xy = room.get_pending_coord(Team.BLUE)
 
@@ -139,12 +151,26 @@ def _cooldown_payload(room: S.BingoRoomState) -> Dict[str, int]:
 
 
 def _state_payload(room: S.BingoRoomState, client_team: str) -> Dict:
+    joined = {
+        Team.RED.value: bool(room.joined_teams.get(Team.RED, False)),
+        Team.BLUE.value: bool(room.joined_teams.get(Team.BLUE, False)),
+    }
+    player_bans = {
+        Team.RED.value: list(room.player_bans.get(Team.RED, [])),
+        Team.BLUE.value: list(room.player_bans.get(Team.BLUE, [])),
+    }
+    viewer_bans = []
+    if client_team in (Team.RED.value, Team.BLUE.value):
+        viewer_bans = list(player_bans.get(client_team, []))
     return {
         "N": room.size,
         "mode": room.mode,
         "pool": room.pool,
-        "card": _card_payload(room),
-        "cells": _cells_payload(room),
+        "card": _card_payload(room) if room.is_board_ready() else [],
+        "cells": _cells_payload(room) if room.is_board_ready() else {
+            Team.RED.value: [],
+            Team.BLUE.value: [],
+        },
         "sys": {"team": client_team, "op": "toggle_pending"},
         "colors": {
             "red": color_mapping[Team.RED],
@@ -156,6 +182,16 @@ def _state_payload(room: S.BingoRoomState, client_team: str) -> Dict:
         "cooldown": _cooldown_payload(room),
         "show_reset_button": show_reset_button,
         "team": client_team,
+        "phase": "ready" if room.is_ready() else "waiting",
+        "ready": room.is_ready(),
+        "board_ready": room.is_board_ready(),
+        "joined_teams": joined,
+        "player_bans": player_bans,
+        "viewer_bans": viewer_bans,
+        "banned_series_union": room.get_banned_series_union(),
+        "available_series": room.get_available_series_ids(),
+        "eligible_spellcard_count": room.eligible_spellcard_count(),
+        "max_banned_works_per_player": int(max_banned_works_per_player),
     }
 
 
@@ -208,11 +244,19 @@ def lobby():
 def api_config():
     """Return server mode and size for lobby display."""
     mode, size, pool = S.get_server_config()
+    works_by_pool = {}
+    for pool_key in sorted(SPELLCARD_POOLS.keys()):
+        try:
+            works_by_pool[pool_key] = S.get_pool_series_ids(pool_key)
+        except Exception:
+            works_by_pool[pool_key] = []
     return jsonify({
         "mode": mode,
         "size": size,
         "pool": pool,
         "pools": sorted(SPELLCARD_POOLS.keys()),
+        "works_by_pool": works_by_pool,
+        "max_banned_works_per_player": int(max_banned_works_per_player),
     })
 
 
@@ -243,22 +287,40 @@ def api_lobby_join():
     team_str = (data.get("team") or "").lower()
     create_mode = (data.get("mode") or "").lower().strip() or None
     create_pool = (data.get("pool") or "").lower().strip() or None
+    banned_series = data.get("banned_series") or []
     if not room_id:
         return jsonify({"error": "Room ID required"}), 400
     if team_str not in VALID_CLIENT_TEAMS:
         return jsonify({"error": "Team must be red, blue, or observer"}), 400
     if create_pool is not None and create_pool not in SPELLCARD_POOLS:
         return jsonify({"error": f"Pool must be one of: {', '.join(sorted(SPELLCARD_POOLS.keys()))}"}), 400
+    if team_str == "observer" and banned_series:
+        return jsonify({"error": "Observer cannot ban works"}), 400
     try:
         room = S.get_room(room_id, create_mode=create_mode, create_pool=create_pool)
     except S.RoomIncompatibleError as e:
         return _incompat_response(e)
+    try:
+        with room.lock:
+            if team_str in (Team.RED.value, Team.BLUE.value):
+                room.confirm_team(_enum_from_str_team(team_str), banned_series)
+                S.save_room(room)
+    except S.RoomBanError as e:
+        return jsonify({"error": str(e)}), 400
+    broadcast(room_id, "state_updated")
     return jsonify({
         "ok": True,
         "room": room_id,
         "team": team_str,
         "mode": room.mode,
         "pool": room.pool,
+        "ready": room.is_ready(),
+        "phase": "ready" if room.is_ready() else "waiting",
+        "joined_teams": {
+            Team.RED.value: bool(room.joined_teams.get(Team.RED, False)),
+            Team.BLUE.value: bool(room.joined_teams.get(Team.BLUE, False)),
+        },
+        "banned_series_union": room.get_banned_series_union(),
     })
 
 
@@ -318,6 +380,8 @@ def api_click():
         room = S.get_room(room_id)
     except S.RoomIncompatibleError as e:
         return _incompat_response(e)
+    if not room.is_ready():
+        return jsonify({"error": "Room is waiting for both teams to join"}), 409
     if not (0 <= r < room.size and 0 <= c < room.size):
         return jsonify({"error": "Out of range"}), 400
     with room.lock:
@@ -352,6 +416,8 @@ def api_hp():
         room = S.get_room(room_id)
     except S.RoomIncompatibleError as e:
         return _incompat_response(e)
+    if not room.is_ready():
+        return jsonify({"error": "Room is waiting for both teams to join"}), 409
     xy = room.get_pending_coord(team)
     if xy is None:
         return jsonify({"error": "No pending cell for team"}), 400
@@ -385,6 +451,8 @@ def api_reset():
         room = S.get_room(room_id)
     except S.RoomIncompatibleError as e:
         return _incompat_response(e)
+    if not room.is_ready():
+        return jsonify({"error": "Room is waiting for both teams to join"}), 409
     with room.lock:
         room.reset()
         S.save_room(room)

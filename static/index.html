@@ -8,108 +8,224 @@
     :root { --gap: 6px; }
     body {
       font-family: system-ui, sans-serif;
-      display:flex; flex-direction:column; align-items:center;
-      padding:20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
       min-height: 100vh;
-      /* Background image: fit by height, keep aspect ratio, center, no distortion */
-      /* background-image: url('media/background.png'); */
+      margin: 0;
       background-repeat: no-repeat;
       background-position: center center;
-      background-size: auto 105vh; /* zoom in by ~5% (relative to viewport height) */
-      background-attachment: fixed; /* keep it steady on scroll */
-      background-color: #ffffff; /* visible on sides if image doesn't fill width */
+      background-size: auto 105vh;
+      background-attachment: fixed;
+      background-color: #ffffff;
+      box-sizing: border-box;
     }
-    h1 { margin:8px 0 16px; }
-    #board { display:grid; gap: var(--gap); }
-    /* HUD layout: 3 columns (left | center | right), 4 rows (labels, score, hp, cd) */
+    h1 { margin: 8px 0 16px; }
+    #board { display: grid; gap: var(--gap); }
     #hud {
-      display:grid;
+      display: grid;
       grid-template-columns: 1fr 80px 1fr;
       grid-template-rows: auto auto auto auto;
-      gap: 6px 16px; /* tighter row gap to bring label and score closer */
-      align-items:center;
-      width:100%;
+      gap: 6px 16px;
+      align-items: center;
+      width: 100%;
       max-width: calc(8 * (72px + 6px));
       margin-bottom: 10px;
     }
-
-    #hud .left { grid-column: 1; display:flex; align-items:center; gap:8px; }
-  #hud .center { grid-column: 2; text-align:center; display:flex; align-items:center; justify-content:center; }
-    #hud .right { grid-column: 3; display:flex; align-items:center; gap:8px; }
-  #hud .team-label { font-size: 42px; font-weight: 900; justify-content:center; text-align:center; width:100%; }
-  #hud .hud-center-meta {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 2px;
-    line-height: 1.15;
-  }
-  #hud .mode-badge { font-size: 12px; font-weight: 700; text-transform: uppercase; color: #666; letter-spacing: 0.05em; }
-  #hud .pool-badge { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #888; letter-spacing: 0.05em; }
-  #hud .observer-badge {
-    margin-top: 2px;
-    padding: 2px 8px;
-    border-radius: 999px;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    color: #fff;
-    background: #555;
-    display: none;
-  }
-  #hud .row-label { font-size: 20px; font-weight: 800; text-transform: uppercase; color:#555; letter-spacing: 0.04em; }
-    #hud .score { justify-content:center; text-align:center; width:100%; }
+    #hud .left { grid-column: 1; display: flex; align-items: center; gap: 8px; }
+    #hud .center { grid-column: 2; text-align: center; display: flex; align-items: center; justify-content: center; }
+    #hud .right { grid-column: 3; display: flex; align-items: center; gap: 8px; }
+    #hud .team-label { font-size: 42px; font-weight: 900; justify-content: center; text-align: center; width: 100%; }
+    #hud .hud-center-meta {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      line-height: 1.15;
+    }
+    #hud .mode-badge { font-size: 12px; font-weight: 700; text-transform: uppercase; color: #666; letter-spacing: 0.05em; }
+    #hud .pool-badge { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #888; letter-spacing: 0.05em; }
+    #hud .ban-badge {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #777;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+    }
+    #hud .observer-badge {
+      margin-top: 2px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: #fff;
+      background: #555;
+      display: none;
+    }
+    #hud .row-label { font-size: 20px; font-weight: 800; text-transform: uppercase; color:#555; letter-spacing: 0.04em; }
+    #hud .score { justify-content: center; text-align: center; width: 100%; }
     #hud .score strong {
-      font-size: 32px; font-weight: 800;
+      font-size: 32px;
+      font-weight: 800;
       background: rgba(255,255,255,0.6);
-      padding: 2px 10px; border-radius: 10px;
+      padding: 2px 10px;
+      border-radius: 10px;
       box-shadow: 0 1px 2px rgba(0,0,0,0.08);
     }
-  #hud .hp { display:flex; justify-content:center; align-items:center; gap:8px; }
-  #hud .hp button { padding:8px 12px; font-size: 16px; }
-  #hud .hp span {
-    min-width: 32px; display:inline-block; text-align:center; font-weight:800; font-size: 20px;
-    background: rgba(255,255,255,0.6);
-    padding: 2px 8px; border-radius: 10px;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.08);
-  }
-  #hud .cd { justify-content:center; text-align:center; width:100%; }
-  #hud .cd span {
-    min-width: 32px; display:inline-block; text-align:center; font-weight:800; font-size: 16px;
-    background: rgba(255,255,255,0.6);
-    padding: 2px 8px; border-radius: 10px;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.08);
-  }
-  /* Reset button styling */
-  #reset-btn { padding:6px 12px; border-radius:10px; border:2px solid #ddd; background:#fff; font-weight:700; cursor:pointer; }
-  #reset-btn:hover { border-color:#bbb; }
-    /* larger cells for SpellCard display */
-    .cell {
-      width:72px; height:72px; display:flex; align-items:center; justify-content:center;
-      background: #f7f7f7; border-radius:6px; cursor:pointer; user-select:none; font-weight:600;
-      box-shadow: 0 1px 0 rgba(0,0,0,0.05);
-      overflow: visible; /* allow pending outline to extend outside */
+    #hud .hp { display:flex; justify-content:center; align-items:center; gap:8px; }
+    #hud .hp button { padding:8px 12px; font-size: 16px; }
+    #hud .hp span, #hud .cd span {
+      min-width: 32px;
+      display: inline-block;
+      text-align: center;
+      font-weight: 800;
+      background: rgba(255,255,255,0.6);
+      padding: 2px 8px;
+      border-radius: 10px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.08);
     }
-    .cell.marked { background: #4caf50; color: white; }
-  .controls { margin: 12px 0; display:flex; gap:8px; justify-content:center; width:100%; }
-  /* Select row under HP */
-  #select-row { display:grid; grid-template-columns: 1fr 80px 1fr; align-items:center; gap: 8px 16px; width:100%; max-width: calc(8 * (72px + 6px)); margin-top: 4px; margin-bottom: 12px; }
-  #select-row .left { display:flex; flex-direction:column; align-items:center; gap:6px; }
-
-  #select-row .right { display:flex; flex-direction:column; align-items:center; gap:6px; }
-  #select-row .center { display:flex; align-items:center; justify-content:center; }
-  .select-label { font-size: 14px; font-weight: 700; color:#444; text-transform: uppercase; letter-spacing: 0.06em; }
-  .team-btn { min-width: 80px; padding:8px 12px; border-radius:9999px; border:2px solid #ddd; font-size:14px; font-weight:700; background:#fff; }
-  .team-btn.red.active { background:#EE5755; color:#fff; border-color:#EE5755; }
-  .team-btn.blue.active { background:#5557EE; color:#fff; border-color:#5557EE; }
-    button { padding:8px 12px; border-radius:6px; border:1px solid #ddd; cursor:pointer; }
-  button.active { border-color:#333; box-shadow: 0 0 0 2px rgba(0,0,0,0.05) inset; font-weight:700; }
-    #status { min-height:1.5em; margin-top:8px; }
-    #overlay { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.45); }
-    #overlay .panel { background:white; padding:24px; border-radius:10px; text-align:center; min-width:220px; }
-    /* On-stage emphasis for score */
-    #scores { font-size: 32px; font-weight: 800; }
+    #hud .hp span { font-size: 20px; }
+    #hud .cd { justify-content:center; text-align:center; width:100%; }
+    #hud .cd span { font-size: 16px; }
+    #reset-btn {
+      padding: 6px 12px;
+      border-radius: 10px;
+      border: 2px solid #ddd;
+      background: #fff;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    #reset-btn:hover { border-color:#bbb; }
+    .cell {
+      width: 72px;
+      height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f7f7f7;
+      border-radius: 6px;
+      cursor: pointer;
+      user-select: none;
+      font-weight: 600;
+      box-shadow: 0 1px 0 rgba(0,0,0,0.05);
+      overflow: visible;
+    }
+    #select-row {
+      display: grid;
+      grid-template-columns: 1fr 80px 1fr;
+      align-items: center;
+      gap: 8px 16px;
+      width: 100%;
+      max-width: calc(8 * (72px + 6px));
+      margin-top: 4px;
+      margin-bottom: 12px;
+    }
+    #select-row .left, #select-row .right {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+    #select-row .center { display: flex; align-items: center; justify-content: center; }
+    .team-btn {
+      min-width: 80px;
+      padding: 8px 12px;
+      border-radius: 9999px;
+      border: 2px solid #ddd;
+      font-size: 14px;
+      font-weight: 700;
+      background: #fff;
+    }
+    .team-btn.red.active { background:#EE5755; color:#fff; border-color:#EE5755; }
+    .team-btn.blue.active { background:#5557EE; color:#fff; border-color:#5557EE; }
+    button { padding: 8px 12px; border-radius: 6px; border: 1px solid #ddd; cursor: pointer; }
+    button.active { border-color:#333; box-shadow: 0 0 0 2px rgba(0,0,0,0.05) inset; font-weight:700; }
+    #status { min-height: 1.5em; margin-top: 8px; color: #444; }
+    #overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.45);
+      padding: 20px;
+      box-sizing: border-box;
+    }
+    #overlay .panel {
+      background: white;
+      padding: 24px;
+      border-radius: 12px;
+      text-align: center;
+      min-width: min(440px, 100%);
+      max-width: 520px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.2);
+    }
+    #overlay h2 { margin-top: 0; margin-bottom: 10px; }
+    #overlay p { margin: 8px 0; color: #555; line-height: 1.45; }
+    .wait-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin: 16px 0 12px;
+      text-align: left;
+    }
+    .wait-card {
+      border: 1px solid rgba(0,0,0,0.08);
+      border-radius: 10px;
+      padding: 12px;
+      background: #fafafa;
+    }
+    .wait-card strong { display: block; margin-bottom: 6px; }
+    .wait-card .you {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 1px 6px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 800;
+      color: #fff;
+      vertical-align: middle;
+    }
+    .wait-card .you.red {
+      background: #EE5755;
+    }
+    .wait-card .you.blue {
+      background: #5557EE;
+    }
+    .countdown {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 2px 10px;
+      border-radius: 999px;
+      background: #fff4ce;
+      color: #9a6700;
+      font-weight: 900;
+      font-size: 18px;
+      line-height: 1.2;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+    }
+    .wait-card .joined {
+      font-size: 12px;
+      font-weight: 700;
+      color: #18794e;
+      margin-bottom: 6px;
+    }
+    .wait-card .pending {
+      font-size: 12px;
+      font-weight: 700;
+      color: #9a6700;
+      margin-bottom: 6px;
+    }
+    .bans {
+      font-size: 13px;
+      color: #555;
+      line-height: 1.45;
+      word-break: break-word;
+    }
   </style>
 </head>
 <body>
@@ -120,29 +236,30 @@
     <div class="center hud-center-meta">
       <div class="mode-badge" id="mode-badge"></div>
       <div class="pool-badge" id="pool-badge"></div>
+      <div class="ban-badge" id="ban-badge"></div>
       <div class="observer-badge" id="observer-badge">Observer</div>
     </div>
     <div class="right team-label" style="color:#5557EE">BLUE</div>
 
-  <div class="left score"><strong id="score-red">0</strong></div>
+    <div class="left score"><strong id="score-red">0</strong></div>
     <div class="center row-label">score</div>
-  <div class="right score"><strong id="score-blue">0</strong></div>
+    <div class="right score"><strong id="score-blue">0</strong></div>
 
-    <div class="left hp">
+    <div class="left hp" id="hp-red-row">
       <button id="hp-red-dec">-</button>
       <span id="hp-red-value">--</span>
       <button id="hp-red-inc">+</button>
     </div>
-    <div class="center row-label">hp</div>
-    <div class="right hp">
+    <div class="center row-label" id="hp-label-row">hp</div>
+    <div class="right hp" id="hp-blue-row">
       <button id="hp-blue-dec">-</button>
       <span id="hp-blue-value">--</span>
       <button id="hp-blue-inc">+</button>
     </div>
 
-    <div class="left cd"><span id="cd-red-value">✅</span></div>
-    <div class="center row-label">cd</div>
-    <div class="right cd"><span id="cd-blue-value">✅</span></div>
+    <div class="left cd" id="cd-red-row"><span id="cd-red-value">✅</span></div>
+    <div class="center row-label" id="cd-label-row">cd</div>
+    <div class="right cd" id="cd-blue-row"><span id="cd-blue-value">✅</span></div>
   </div>
 
   <div id="select-row">
@@ -155,10 +272,28 @@
     </div>
   </div>
 
-  <!-- HP controls moved into #hud -->
-
   <div id="board" aria-live="polite"></div>
   <div id="status" role="status"></div>
+
+  <div id="overlay">
+    <div class="panel">
+      <h2 id="overlay-title">Waiting For Players</h2>
+      <p id="overlay-message"></p>
+      <div class="wait-grid">
+        <div class="wait-card">
+          <strong>RED <span id="you-red" class="you" style="display:none;">you</span></strong>
+          <div id="join-red"></div>
+          <div id="bans-red" class="bans"></div>
+        </div>
+        <div class="wait-card">
+          <strong>BLUE <span id="you-blue" class="you" style="display:none;">you</span></strong>
+          <div id="join-blue"></div>
+          <div id="bans-blue" class="bans"></div>
+        </div>
+      </div>
+      <p id="overlay-union" class="bans"></p>
+    </div>
+  </div>
 
   <script>
     const params = new URLSearchParams(window.location.search);
@@ -172,9 +307,22 @@
     let N = 8;
     const boardEl = document.getElementById('board');
     const statusEl = document.getElementById('status');
-    const cellSize = 72; // must match .cell width/height in CSS
+    const overlayEl = document.getElementById('overlay');
+    const cellSize = 72;
     const gap = 6;
     const teamQ = `room=${encodeURIComponent(roomId)}&team=${encodeURIComponent(clientTeam)}`;
+    const countdownSeenKey = `ready-countdown:${roomId}:${clientTeam}`;
+    const roomViewSeenKey = `room-view-seen:${roomId}:${clientTeam}`;
+    const hadSeenRoomViewBefore = (() => {
+      try {
+        return window.sessionStorage.getItem(roomViewSeenKey) === '1';
+      } catch (_) {
+        return false;
+      }
+    })();
+    try {
+      window.sessionStorage.setItem(roomViewSeenKey, '1');
+    } catch (_) {}
 
     let COLORS = { red: '#EE5755', blue: '#5557EE', both: '#E000E0' };
     let SYS = { team: clientTeam, op: 'toggle_pending' };
@@ -182,6 +330,37 @@
     let CELLS = { red: [], blue: [] };
     let PENDING = { red: { xy: null, hp: null }, blue: { xy: null, hp: null }, max_hp: 5 };
     let COOLDOWN = { red: 0, blue: 0 };
+    let ROOM_READY = false;
+    let SERVER_READY = false;
+    let readyCountdownEndsAt = null;
+    let countdownDone = false;
+    let latestPregameData = null;
+    let sawWaitingState = false;
+
+    function hasSeenReadyCountdown() {
+      try {
+        return window.sessionStorage.getItem(countdownSeenKey) === '1';
+      } catch (_) {
+        return false;
+      }
+    }
+
+    function markReadyCountdownSeen() {
+      try {
+        window.sessionStorage.setItem(countdownSeenKey, '1');
+      } catch (_) {}
+    }
+
+    function clearReadyCountdownSeen() {
+      try {
+        window.sessionStorage.removeItem(countdownSeenKey);
+      } catch (_) {}
+    }
+
+    function setStatus(message, isError = false) {
+      statusEl.textContent = message || '';
+      statusEl.style.color = isError ? '#b42318' : '#444';
+    }
 
     function setActiveButtons() {
       const redBtn = document.getElementById('team-red');
@@ -201,7 +380,98 @@
       blueBtn.disabled = true;
     }
 
-    // Display width helper: ASCII (<=0x7F) counts as 1, any non-ASCII Unicode code point counts as 2.
+    function setWaitingOverlay(data) {
+      const ready = !!data.ready;
+      const showingCountdown = SERVER_READY && !ROOM_READY;
+      overlayEl.style.display = (ready && !showingCountdown) ? 'none' : 'flex';
+      boardEl.style.display = ROOM_READY ? 'grid' : 'none';
+      if (ready && !showingCountdown) return;
+
+      const joined = data.joined_teams || { red: false, blue: false };
+      const playerBans = data.player_bans || { red: [], blue: [] };
+      const unionBans = Array.isArray(data.banned_series_union)
+        ? [...data.banned_series_union].sort()
+        : [];
+      const titleEl = document.getElementById('overlay-title');
+      const messageEl = document.getElementById('overlay-message');
+      const joinRedEl = document.getElementById('join-red');
+      const joinBlueEl = document.getElementById('join-blue');
+      const bansRedEl = document.getElementById('bans-red');
+      const bansBlueEl = document.getElementById('bans-blue');
+      const unionEl = document.getElementById('overlay-union');
+      const youRedEl = document.getElementById('you-red');
+      const youBlueEl = document.getElementById('you-blue');
+
+      youRedEl.style.display = clientTeam === 'red' ? 'inline-block' : 'none';
+      youBlueEl.style.display = clientTeam === 'blue' ? 'inline-block' : 'none';
+      youRedEl.className = 'you red';
+      youBlueEl.className = 'you blue';
+
+      if (showingCountdown) {
+        const remaining = Math.max(0, Math.ceil((readyCountdownEndsAt - Date.now()) / 1000));
+        titleEl.textContent = 'Match Ready';
+        messageEl.innerHTML = `Both players have joined. Starting in <span class="countdown">${remaining}s</span>`;
+      } else {
+        titleEl.textContent = 'Waiting For Room To Fill';
+        if (isObserver) {
+          messageEl.textContent = 'This room is not ready yet. The board will appear after both red and blue confirm their bans.';
+        } else if ((clientTeam === 'red' && joined.red) || (clientTeam === 'blue' && joined.blue)) {
+          messageEl.textContent = 'Your bans are locked in. Waiting for the other player to confirm.';
+        } else {
+          messageEl.textContent = 'Waiting for both players to confirm before the board is generated.';
+        }
+      }
+
+      joinRedEl.className = joined.red ? 'joined' : 'pending';
+      joinBlueEl.className = joined.blue ? 'joined' : 'pending';
+      joinRedEl.textContent = joined.red ? 'Confirmed' : 'Waiting';
+      joinBlueEl.textContent = joined.blue ? 'Confirmed' : 'Waiting';
+      bansRedEl.textContent = `Bans: ${playerBans.red && playerBans.red.length ? playerBans.red.join(', ') : 'None'}`;
+      bansBlueEl.textContent = `Bans: ${playerBans.blue && playerBans.blue.length ? playerBans.blue.join(', ') : 'None'}`;
+      unionEl.textContent = `Effective room bans: ${unionBans.length ? unionBans.join(', ') : 'None yet'}`;
+    }
+
+    function formatBanBadge(unionBans) {
+      const sorted = Array.isArray(unionBans) ? [...unionBans].sort() : [];
+      if (!sorted.length) return 'BAN None';
+      return `BAN ${sorted.join(' ')}`;
+    }
+
+    function maybeStartReadyCountdown(data) {
+      SERVER_READY = !!data.ready;
+      latestPregameData = data;
+      if (!SERVER_READY) {
+        sawWaitingState = true;
+        clearReadyCountdownSeen();
+        readyCountdownEndsAt = null;
+        countdownDone = false;
+        ROOM_READY = false;
+        return;
+      }
+      if (countdownDone) {
+        ROOM_READY = true;
+        return;
+      }
+      if (readyCountdownEndsAt == null) {
+        if (hasSeenReadyCountdown()) {
+          countdownDone = true;
+          ROOM_READY = true;
+          return;
+        }
+        if (!sawWaitingState && hadSeenRoomViewBefore) {
+          countdownDone = true;
+          ROOM_READY = true;
+          return;
+        }
+        markReadyCountdownSeen();
+        readyCountdownEndsAt = Date.now() + 5000;
+      }
+      ROOM_READY = Date.now() >= readyCountdownEndsAt;
+      if (ROOM_READY) {
+        countdownDone = true;
+      }
+    }
+
     function charUnits(ch) {
       if (!ch) return 1;
       const code = ch.codePointAt(0);
@@ -214,32 +484,26 @@
       const lines = [[], []];
       let units1 = 0, units2 = 0;
       let i = 0;
-      // fill line1
       while (i < chars.length) {
         const ch = chars[i];
         const u = charUnits(ch);
         if (units1 + u > maxUnitsPerLine) break;
         lines[0].push(ch); units1 += u; i++;
       }
-      // fill line2
       while (i < chars.length) {
         const ch = chars[i];
         const u = charUnits(ch);
         if (units2 + u > maxUnitsPerLine) break;
         lines[1].push(ch); units2 += u; i++;
       }
-      // if still remaining, add ellipsis to line2 (reserve up to 3 units for '...')
       if (i < chars.length) {
-        // ensure we have space for '...'
         const ellipsis = '...';
-        const ellUnits = 3; // three ASCII dots
+        const ellUnits = 3;
         while (units2 + ellUnits > maxUnitsPerLine && lines[1].length > 0) {
           const last = lines[1].pop();
           units2 -= charUnits(last);
         }
-        if (units2 + ellUnits <= maxUnitsPerLine) {
-          lines[1].push(ellipsis);
-        }
+        if (units2 + ellUnits <= maxUnitsPerLine) lines[1].push(ellipsis);
       }
       return [lines[0].join(''), lines[1].join('')];
     }
@@ -257,6 +521,10 @@
     }
 
     function renderBoard() {
+      if (!ROOM_READY || !CARD.length) {
+        boardEl.innerHTML = '';
+        return;
+      }
       boardEl.innerHTML = '';
       boardEl.style.gridTemplateColumns = `repeat(${N}, 1fr)`;
       boardEl.style.width = `${N * (cellSize + gap)}px`;
@@ -266,33 +534,34 @@
           const spec = CARD[r][c];
           const redState = CELLS.red[r][c];
           const blueState = CELLS.blue[r][c];
-
           const cell = document.createElement('div');
           cell.className = 'cell';
-          cell.dataset.r = r; cell.dataset.c = c;
+          cell.dataset.r = r;
+          cell.dataset.c = c;
           cell.style.position = 'relative';
 
-          // background fill for CHECKED
           let bg = '';
           if (redState === 'checked' && blueState === 'checked') bg = COLORS.both;
           else if (redState === 'checked') bg = COLORS.red;
           else if (blueState === 'checked') bg = COLORS.blue;
-          if (bg) { cell.style.background = bg; cell.style.color = 'white'; }
-          else { cell.style.background = '#f7f7f7'; cell.style.color = '#000'; }
+          if (bg) {
+            cell.style.background = bg;
+            cell.style.color = 'white';
+          } else {
+            cell.style.background = '#f7f7f7';
+            cell.style.color = '#000';
+          }
 
-          // border for PENDING
           let borderColor = '';
           if (redState === 'pending' && blueState === 'pending') borderColor = COLORS.both;
           else if (redState === 'pending') borderColor = COLORS.red;
           else if (blueState === 'pending') borderColor = COLORS.blue;
           if (borderColor) {
-            // Split 6px into 3px inside + 3px outside for visibility beyond the cell box
             cell.style.boxShadow = `0 0 0 3px ${borderColor} inset, 0 0 0 3px ${borderColor}`;
           } else {
             cell.style.boxShadow = '0 1px 0 rgba(0,0,0,0.05)';
           }
 
-          // name (two lines by display width: ASCII=1, CJK=2). Each line max 10 units (~5 CJK), ellipsize if over.
           const nameContainer = document.createElement('div');
           nameContainer.style.position = 'absolute';
           nameContainer.style.top = '6px';
@@ -303,11 +572,8 @@
           nameContainer.style.fontSize = '12px';
           nameContainer.style.maxHeight = '2.4em';
           nameContainer.style.overflow = 'hidden';
-          // Let CSS handle line folding while we still apply unit-based truncation without manual newlines
           const [nm1, nm2] = splitTwoLinesByDisplayWidth(spec.name || '', 10);
-          const nameText = (nm2 ? (nm1 + ' ' + nm2) : nm1);
-          nameContainer.textContent = nameText;
-          // CSS multi-line clamp (2 lines) with automatic folding
+          nameContainer.textContent = nm2 ? `${nm1} ${nm2}` : nm1;
           nameContainer.style.whiteSpace = 'normal';
           nameContainer.style.wordBreak = 'break-word';
           nameContainer.style.overflowWrap = 'anywhere';
@@ -315,15 +581,13 @@
           nameContainer.style.webkitBoxOrient = 'vertical';
           nameContainer.style.webkitLineClamp = '2';
 
-          // comment: placed between name and index, adaptive font size up to 0.7x of NAME font size
           const commentContainer = document.createElement('div');
           commentContainer.style.position = 'absolute';
           commentContainer.style.left = '6px';
           commentContainer.style.right = '6px';
-          commentContainer.style.top = '32px'; // move a bit higher below the name area
+          commentContainer.style.top = '32px';
           commentContainer.style.textAlign = 'center';
           commentContainer.style.lineHeight = '1.15';
-          // Allow wrapping, no CSS truncation; we'll scale font to fit instead
           commentContainer.style.whiteSpace = 'normal';
           commentContainer.style.wordBreak = 'break-word';
           commentContainer.style.overflowWrap = 'anywhere';
@@ -331,27 +595,20 @@
           commentContainer.style.height = '28px';
           const commentText = String(spec.comment ?? '').trim();
           commentContainer.textContent = commentText;
-          // Start at comfortable size (0.9 * name font size)
           const nameFontPx = 12;
-          const defaultCommentPx = Math.floor(nameFontPx * 0.9); // ~10px
-          const minCommentPx = Math.floor(nameFontPx * 0.6); // absolute minimum guard
-          commentContainer.style.fontSize = defaultCommentPx + 'px';
+          const defaultCommentPx = Math.floor(nameFontPx * 0.9);
+          const minCommentPx = Math.floor(nameFontPx * 0.6);
+          commentContainer.style.fontSize = `${defaultCommentPx}px`;
 
-          // index bottom-left
           const bottomLeft = document.createElement('div');
           bottomLeft.style.position = 'absolute';
           bottomLeft.style.left = '6px';
           bottomLeft.style.bottom = '6px';
-          bottomLeft.style.display = 'flex';
-          bottomLeft.style.flexDirection = 'column';
-          bottomLeft.style.alignItems = 'flex-start';
-          bottomLeft.style.gap = '1px';
           const idxEl = document.createElement('div');
           idxEl.style.fontSize = '10px';
           idxEl.textContent = spec.index;
           bottomLeft.appendChild(idxEl);
 
-          // score bottom-right, larger, circled numbers up to 20
           const bottomRight = document.createElement('div');
           bottomRight.style.position = 'absolute';
           bottomRight.style.right = '6px';
@@ -366,18 +623,13 @@
             const isChecked = !!bg;
             commentContainer.style.color = isChecked ? '#fff' : '#333';
             cell.appendChild(commentContainer);
-
-            // Adjust comment font size based on string length heuristic
-            if (commentText.length > 0) {
-              const k = 100; // Tuned experimentally
-              const heuristicSize = k / commentText.length;
-              const finalSize = Math.max(minCommentPx, Math.min(defaultCommentPx, heuristicSize));
-              commentContainer.style.fontSize = finalSize + 'px';
-            }
+            const heuristicSize = 100 / commentText.length;
+            const finalSize = Math.max(minCommentPx, Math.min(defaultCommentPx, heuristicSize));
+            commentContainer.style.fontSize = `${finalSize}px`;
           }
           cell.appendChild(bottomLeft);
           cell.appendChild(bottomRight);
-          if (isObserver) {
+          if (isObserver || !ROOM_READY) {
             cell.style.cursor = 'default';
           } else {
             cell.addEventListener('click', () => onCellClick(r, c));
@@ -385,66 +637,6 @@
           boardEl.appendChild(cell);
         }
       }
-    }
-
-    async function fetchState() {
-      const res = await fetch(`/state?${teamQ}`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        if (data.incompatible && data.message) {
-          const msg = data.message + '\n\nUse a new Room ID and try again.';
-          if (confirm(msg + '\n\nClick OK to go back to the lobby.')) {
-            window.location.href = '/lobby';
-          }
-          statusEl.innerHTML = 'Room incompatible. <a href="/lobby">Back to Lobby</a>';
-        } else {
-          statusEl.textContent = data.error || 'Failed to load state';
-        }
-        return;
-      }
-      N = data.N || 8;
-      const modeEl = document.getElementById('mode-badge');
-      const poolEl = document.getElementById('pool-badge');
-      if (modeEl) modeEl.textContent = (data.mode || 'shared') === 'exclusive' ? 'Exclusive' : 'Shared';
-      if (poolEl) poolEl.textContent = (data.pool || 'normal') === 'lunatic' ? 'Lunatic' : 'Normal';
-      COLORS = data.colors || COLORS;
-      SYS = data.sys || SYS;
-      CARD = data.card || [];
-      CELLS = data.cells || { red: [], blue: [] };
-      const scores = data.scores || { red: 0, blue: 0 };
-      document.getElementById('score-red').textContent = String(scores.red || 0);
-      document.getElementById('score-blue').textContent = String(scores.blue || 0);
-      PENDING = data.pending || PENDING;
-      COOLDOWN = data.cooldown || COOLDOWN;
-
-      const resetBtn = document.getElementById('reset-btn');
-      if (resetBtn) {
-        resetBtn.style.display = data.show_reset_button && !isObserver ? 'inline-block' : 'none';
-      }
-
-      setActiveButtons();
-      renderBoard();
-      updateHpUI();
-      updateCdUI();
-    }
-
-    async function onCellClick(r, c) {
-      if (isObserver) return;
-      await fetch(`/click?${teamQ}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ r, c }),
-      });
-      await fetchState();
-    }
-
-    const resetBtn = document.getElementById('reset-btn');
-    if (resetBtn) {
-      resetBtn.addEventListener('click', async () => {
-        if (isObserver) return;
-        await fetch(`/reset?${teamQ}`, { method: 'POST' });
-        await fetchState();
-      });
     }
 
     function updateHpUI() {
@@ -458,8 +650,8 @@
       const rHP = PENDING?.red?.hp;
       const bHP = PENDING?.blue?.hp;
       const MAX = PENDING?.max_hp ?? 5;
-      const canEditRed = clientTeam === 'red' && !isObserver;
-      const canEditBlue = clientTeam === 'blue' && !isObserver;
+      const canEditRed = ROOM_READY && clientTeam === 'red' && !isObserver;
+      const canEditBlue = ROOM_READY && clientTeam === 'blue' && !isObserver;
 
       if (rHP == null) {
         redV.textContent = '--';
@@ -491,16 +683,112 @@
       blue.textContent = b > 0 ? `${b}s` : '✅';
     }
 
+    function updateModeSpecificRows(mode) {
+      const isExclusive = mode === 'exclusive';
+      const hpIds = ['hp-red-row', 'hp-label-row', 'hp-blue-row'];
+      const cdIds = ['cd-red-row', 'cd-label-row', 'cd-blue-row'];
+      for (const id of hpIds) {
+        const el = document.getElementById(id);
+        if (el) el.style.display = isExclusive ? 'none' : '';
+      }
+      for (const id of cdIds) {
+        const el = document.getElementById(id);
+        if (el) el.style.display = isExclusive ? '' : 'none';
+      }
+    }
+
+    async function applyAction(url, options) {
+      const res = await fetch(url, options);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setStatus(data.error || 'Action failed.', true);
+        return false;
+      }
+      await fetchState();
+      return true;
+    }
+
+    async function fetchState() {
+      const res = await fetch(`/state?${teamQ}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (data.incompatible && data.message) {
+          const msg = `${data.message}\n\nUse a new Room ID and try again.`;
+          if (confirm(msg + '\n\nClick OK to go back to the lobby.')) {
+            window.location.href = '/lobby';
+          }
+          statusEl.innerHTML = 'Room incompatible. <a href="/lobby">Back to Lobby</a>';
+        } else {
+          setStatus(data.error || 'Failed to load state', true);
+        }
+        return;
+      }
+
+      maybeStartReadyCountdown(data);
+      N = data.N || 8;
+      const modeEl = document.getElementById('mode-badge');
+      const poolEl = document.getElementById('pool-badge');
+      const banEl = document.getElementById('ban-badge');
+      const roomMode = (data.mode || 'shared') === 'exclusive' ? 'exclusive' : 'shared';
+      if (modeEl) modeEl.textContent = roomMode === 'exclusive' ? 'Exclusive' : 'Shared';
+      if (poolEl) poolEl.textContent = (data.pool || 'normal') === 'lunatic' ? 'Lunatic' : 'Normal';
+      if (banEl) banEl.textContent = formatBanBadge(data.banned_series_union || []);
+      updateModeSpecificRows(roomMode);
+
+      COLORS = data.colors || COLORS;
+      SYS = data.sys || SYS;
+      CARD = data.card || [];
+      CELLS = data.cells || { red: [], blue: [] };
+      PENDING = data.pending || PENDING;
+      COOLDOWN = data.cooldown || COOLDOWN;
+
+      const scores = data.scores || { red: 0, blue: 0 };
+      document.getElementById('score-red').textContent = String(scores.red || 0);
+      document.getElementById('score-blue').textContent = String(scores.blue || 0);
+
+      const resetBtn = document.getElementById('reset-btn');
+      if (resetBtn) {
+        resetBtn.style.display = data.show_reset_button && !isObserver && ROOM_READY ? 'inline-block' : 'none';
+      }
+
+      setActiveButtons();
+      setWaitingOverlay(data);
+      renderBoard();
+      updateHpUI();
+      updateCdUI();
+      if (SERVER_READY && !ROOM_READY) {
+        const remaining = Math.max(0, Math.ceil((readyCountdownEndsAt - Date.now()) / 1000));
+        setStatus(`Match ready. Starting in ${remaining}s...`);
+      } else {
+        setStatus(ROOM_READY ? '' : 'Waiting for both teams to confirm bans.');
+      }
+    }
+
+    async function onCellClick(r, c) {
+      if (isObserver || !ROOM_READY) return;
+      await applyAction(`/click?${teamQ}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ r, c }),
+      });
+    }
+
+    const resetBtn = document.getElementById('reset-btn');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', async () => {
+        if (isObserver || !ROOM_READY) return;
+        await applyAction(`/reset?${teamQ}`, { method: 'POST' });
+      });
+    }
+
     async function hpAdjust(team, delta) {
-      if (isObserver) return;
+      if (isObserver || !ROOM_READY) return;
       if (team !== clientTeam) return;
-      const res = await fetch(`/hp?${teamQ}`, {
+      await applyAction(`/hp?${teamQ}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ team, delta }),
       });
-      if (!res.ok) return;
-      await fetchState();
     }
 
     document.getElementById('hp-red-dec').addEventListener('click', () => hpAdjust('red', -1));
@@ -513,14 +801,33 @@
       if (e.data === 'state_updated') fetchState();
     };
 
-    // Smooth local countdown display between server pushes.
     setInterval(() => {
+      if (SERVER_READY && !countdownDone && readyCountdownEndsAt != null) {
+        if (Date.now() >= readyCountdownEndsAt) {
+          countdownDone = true;
+          ROOM_READY = true;
+          if (latestPregameData) {
+            setWaitingOverlay(latestPregameData);
+            renderBoard();
+            updateHpUI();
+          }
+          setStatus('');
+        } else if (latestPregameData) {
+          setWaitingOverlay(latestPregameData);
+          const remaining = Math.max(0, Math.ceil((readyCountdownEndsAt - Date.now()) / 1000));
+          setStatus(`Match ready. Starting in ${remaining}s...`);
+        }
+      }
+      if (!ROOM_READY) return;
       if (COOLDOWN.red > 0) COOLDOWN.red -= 1;
       if (COOLDOWN.blue > 0) COOLDOWN.blue -= 1;
       updateCdUI();
     }, 1000);
 
-    fetchState().catch(err => { statusEl.textContent = 'Failed to load state'; console.error(err); });
+    fetchState().catch((err) => {
+      setStatus('Failed to load state', true);
+      console.error(err);
+    });
   </script>
 </body>
 </html>

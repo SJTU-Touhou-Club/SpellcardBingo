@@ -46,6 +46,9 @@ privileged_spellcard_ids: Dict[str, List[int]] = {
   "lunatic": [],
 }
 
+# Per-player maximum number of works (`SeriesID`) that may be banned before room start.
+max_banned_works_per_player = 2
+
 # Legacy single path: default pool (local checkpoint / load_spellcard_data default)
 target_spellcard_data_path = SPELLCARD_POOLS[DEFAULT_SPELLCARD_POOL]
 
