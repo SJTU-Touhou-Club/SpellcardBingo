@@ -336,6 +336,8 @@
     let countdownDone = false;
     let latestPregameData = null;
     let sawWaitingState = false;
+    let fetchInFlight = null;
+    let refreshQueued = false;
 
     function hasSeenReadyCountdown() {
       try {
@@ -449,6 +451,11 @@
         return;
       }
       if (countdownDone) {
+        ROOM_READY = true;
+        return;
+      }
+      if (data.ready && !sawWaitingState && (data.card?.length > 0)) {
+        countdownDone = true;
         ROOM_READY = true;
         return;
       }
@@ -709,58 +716,73 @@
     }
 
     async function fetchState() {
-      const res = await fetch(`/state?${teamQ}`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        if (data.incompatible && data.message) {
-          const msg = `${data.message}\n\nUse a new Room ID and try again.`;
-          if (confirm(msg + '\n\nClick OK to go back to the lobby.')) {
-            window.location.href = '/lobby';
+      if (fetchInFlight) {
+        refreshQueued = true;
+        return fetchInFlight;
+      }
+      fetchInFlight = (async () => {
+        const res = await fetch(`/state?${teamQ}`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          if (data.incompatible && data.message) {
+            const msg = `${data.message}\n\nUse a new Room ID and try again.`;
+            if (confirm(msg + '\n\nClick OK to go back to the lobby.')) {
+              window.location.href = '/lobby';
+            }
+            statusEl.innerHTML = 'Room incompatible. <a href="/lobby">Back to Lobby</a>';
+          } else {
+            setStatus(data.error || 'Failed to load state', true);
           }
-          statusEl.innerHTML = 'Room incompatible. <a href="/lobby">Back to Lobby</a>';
-        } else {
-          setStatus(data.error || 'Failed to load state', true);
+          return;
         }
-        return;
-      }
 
-      maybeStartReadyCountdown(data);
-      N = data.N || 8;
-      const modeEl = document.getElementById('mode-badge');
-      const poolEl = document.getElementById('pool-badge');
-      const banEl = document.getElementById('ban-badge');
-      const roomMode = (data.mode || 'shared') === 'exclusive' ? 'exclusive' : 'shared';
-      if (modeEl) modeEl.textContent = roomMode === 'exclusive' ? 'Exclusive' : 'Shared';
-      if (poolEl) poolEl.textContent = (data.pool || 'normal') === 'lunatic' ? 'Lunatic' : 'Normal';
-      if (banEl) banEl.textContent = formatBanBadge(data.banned_series_union || []);
-      updateModeSpecificRows(roomMode);
+        maybeStartReadyCountdown(data);
+        N = data.N || 8;
+        const modeEl = document.getElementById('mode-badge');
+        const poolEl = document.getElementById('pool-badge');
+        const banEl = document.getElementById('ban-badge');
+        const roomMode = (data.mode || 'shared') === 'exclusive' ? 'exclusive' : 'shared';
+        if (modeEl) modeEl.textContent = roomMode === 'exclusive' ? 'Exclusive' : 'Shared';
+        if (poolEl) poolEl.textContent = (data.pool || 'normal') === 'lunatic' ? 'Lunatic' : 'Normal';
+        if (banEl) banEl.textContent = formatBanBadge(data.banned_series_union || []);
+        updateModeSpecificRows(roomMode);
 
-      COLORS = data.colors || COLORS;
-      SYS = data.sys || SYS;
-      CARD = data.card || [];
-      CELLS = data.cells || { red: [], blue: [] };
-      PENDING = data.pending || PENDING;
-      COOLDOWN = data.cooldown || COOLDOWN;
+        COLORS = data.colors || COLORS;
+        SYS = data.sys || SYS;
+        CARD = data.card || [];
+        CELLS = data.cells || { red: [], blue: [] };
+        PENDING = data.pending || PENDING;
+        COOLDOWN = data.cooldown || COOLDOWN;
 
-      const scores = data.scores || { red: 0, blue: 0 };
-      document.getElementById('score-red').textContent = String(scores.red || 0);
-      document.getElementById('score-blue').textContent = String(scores.blue || 0);
+        const scores = data.scores || { red: 0, blue: 0 };
+        document.getElementById('score-red').textContent = String(scores.red || 0);
+        document.getElementById('score-blue').textContent = String(scores.blue || 0);
 
-      const resetBtn = document.getElementById('reset-btn');
-      if (resetBtn) {
-        resetBtn.style.display = data.show_reset_button && !isObserver && ROOM_READY ? 'inline-block' : 'none';
-      }
+        const resetBtn = document.getElementById('reset-btn');
+        if (resetBtn) {
+          resetBtn.style.display = data.show_reset_button && !isObserver && ROOM_READY ? 'inline-block' : 'none';
+        }
 
-      setActiveButtons();
-      setWaitingOverlay(data);
-      renderBoard();
-      updateHpUI();
-      updateCdUI();
-      if (SERVER_READY && !ROOM_READY) {
-        const remaining = Math.max(0, Math.ceil((readyCountdownEndsAt - Date.now()) / 1000));
-        setStatus(`Match ready. Starting in ${remaining}s...`);
-      } else {
-        setStatus(ROOM_READY ? '' : 'Waiting for both teams to confirm bans.');
+        setActiveButtons();
+        setWaitingOverlay(data);
+        renderBoard();
+        updateHpUI();
+        updateCdUI();
+        if (SERVER_READY && !ROOM_READY) {
+          const remaining = Math.max(0, Math.ceil((readyCountdownEndsAt - Date.now()) / 1000));
+          setStatus(`Match ready. Starting in ${remaining}s...`);
+        } else {
+          setStatus(ROOM_READY ? '' : 'Waiting for both teams to confirm bans.');
+        }
+      })();
+      try {
+        await fetchInFlight;
+      } finally {
+        fetchInFlight = null;
+        if (refreshQueued) {
+          refreshQueued = false;
+          fetchState();
+        }
       }
     }
 
@@ -796,10 +818,38 @@
     document.getElementById('hp-blue-dec').addEventListener('click', () => hpAdjust('blue', -1));
     document.getElementById('hp-blue-inc').addEventListener('click', () => hpAdjust('blue', +1));
 
-    const evtSource = new EventSource(`/events/${encodeURIComponent(roomId)}`);
-    evtSource.onmessage = (e) => {
-      if (e.data === 'state_updated') fetchState();
-    };
+    let evtSource = null;
+    let sseBackoffMs = 1000;
+    const SSE_BACKOFF_MAX = 5000;
+
+    function connectSSE() {
+      if (evtSource) {
+        evtSource.close();
+        evtSource = null;
+      }
+      evtSource = new EventSource(`/events/${encodeURIComponent(roomId)}`);
+      evtSource.onopen = () => {
+        sseBackoffMs = 1000;
+      };
+      evtSource.onmessage = (e) => {
+        if (e.data === 'state_updated') fetchState();
+      };
+      evtSource.onerror = () => {
+        if (evtSource) {
+          evtSource.close();
+          evtSource = null;
+        }
+        const delay = sseBackoffMs;
+        sseBackoffMs = Math.min(SSE_BACKOFF_MAX, sseBackoffMs * 2);
+        setTimeout(connectSSE, delay);
+      };
+    }
+    connectSSE();
+
+    setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      fetchState();
+    }, 2500);
 
     setInterval(() => {
       if (SERVER_READY && !countdownDone && readyCountdownEndsAt != null) {

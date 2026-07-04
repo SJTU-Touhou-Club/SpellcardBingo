@@ -14,6 +14,7 @@ Endpoints:
 import argparse
 import queue
 import os
+import threading
 
 from flask import Flask, jsonify, request, send_from_directory, redirect
 from flask import Response
@@ -37,16 +38,44 @@ VALID_CLIENT_TEAMS = ("red", "blue", "observer")
 
 # SSE event queues per room
 event_queues: Dict[str, list] = {}
+event_queues_lock = threading.Lock()
+SSE_KEEPALIVE_SECONDS = 25
 
 
-def event_stream(q: "queue.Queue[str]"):
-    while True:
-        msg = q.get()
-        yield f"data: {msg}\n\n"
+def _register_sse_queue(room_id: str, q: "queue.Queue[str]") -> None:
+    with event_queues_lock:
+        event_queues.setdefault(room_id, []).append(q)
+
+
+def _unregister_sse_queue(room_id: str, q: "queue.Queue[str]") -> None:
+    with event_queues_lock:
+        queues = event_queues.get(room_id)
+        if not queues:
+            return
+        try:
+            queues.remove(q)
+        except ValueError:
+            pass
+        if not queues:
+            event_queues.pop(room_id, None)
+
+
+def event_stream(room_id: str, q: "queue.Queue[str]"):
+    try:
+        while True:
+            try:
+                msg = q.get(timeout=SSE_KEEPALIVE_SECONDS)
+                yield f"data: {msg}\n\n"
+            except queue.Empty:
+                yield ": ping\n\n"
+    finally:
+        _unregister_sse_queue(room_id, q)
 
 
 def broadcast(room_id: str, msg: str) -> None:
-    for q in event_queues.get(room_id, []):
+    with event_queues_lock:
+        queues = list(event_queues.get(room_id, []))
+    for q in queues:
         try:
             q.put(msg)
         except Exception:
@@ -463,8 +492,17 @@ def api_reset():
 @app.route("/events/<room_id>")
 def events(room_id: str):
     q: queue.Queue = queue.Queue()
-    event_queues.setdefault(room_id, []).append(q)
-    return Response(event_stream(q), mimetype="text/event-stream")
+    _register_sse_queue(room_id, q)
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    return Response(
+        event_stream(room_id, q),
+        mimetype="text/event-stream",
+        headers=headers,
+    )
 
 
 def is_serving_process(app) -> bool:
